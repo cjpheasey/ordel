@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import threading
+import time
 import urllib.request
 
 import pystray
@@ -25,6 +26,23 @@ from .server import make_server
 TITLE = "Ordel"
 BACKGROUNDS = {"ordel": "#14171F", "graphite": "#1E1E20", "light": "#FFFFFF", "glass": "#121218"}
 log = logging.getLogger("studio_hub")
+
+
+MIN_SIZE = (900, 600)
+
+
+def resized_rect(start: tuple, dx: int, dy: int, edge: str, min_w: int, min_h: int) -> tuple:
+    """New window rect after dragging `edge` (n, s, e, w or a corner like "se") by dx, dy; never below the minimum."""
+    left, top, right, bottom = start
+    if "e" in edge:
+        right = max(right + dx, left + min_w)
+    if "w" in edge:
+        left = min(left + dx, right - min_w)
+    if "s" in edge:
+        bottom = max(bottom + dy, top + min_h)
+    if "n" in edge:
+        top = min(top + dy, bottom - min_h)
+    return left, top, right, bottom
 
 
 def safe_geometry(geo: dict | None) -> dict:
@@ -73,6 +91,7 @@ class App:
                                      helper=HelperCapture(reaper_dir()))
         self.api = Api(reaper_dir(), self.library, self.bridge, self.capture, {
             "show": self.show, "hide": self.hide, "minimize": self.minimize, "quit": self.quit,
+            "resize": self.resize,
             "pick_image": self.pick_image, "set_hotkey": self.set_hotkey,
         })
         self.server = make_server(self.api, resource("ui"), snapshots_dir())
@@ -104,6 +123,26 @@ class App:
         self._save_geometry()
         self.window.hide()
         self.visible = False
+
+    def resize(self, edge: str) -> None:
+        """The window is borderless, so Windows gives it no resize edges; follow the mouse ourselves."""
+        threading.Thread(target=self._drag_resize, args=(edge,), daemon=True).start()
+
+    def _drag_resize(self, edge: str) -> None:
+        hwnd = self._hwnd()
+        if not hwnd:
+            return
+        start = win32gui.GetWindowRect(hwnd)
+        sx, sy = win32api.GetCursorPos()
+        scale = ctypes.windll.user32.GetDpiForWindow(hwnd) / 96
+        min_w, min_h = round(MIN_SIZE[0] * scale), round(MIN_SIZE[1] * scale)
+        flags = win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+        while win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000:  # until the mouse button is let go
+            x, y = win32api.GetCursorPos()
+            left, top, right, bottom = resized_rect(start, x - sx, y - sy, edge, min_w, min_h)
+            win32gui.SetWindowPos(hwnd, 0, left, top, right - left, bottom - top, flags)
+            time.sleep(0.012)
+        self._save_geometry()
 
     def minimize(self) -> None:
         self.window.minimize()
@@ -159,7 +198,7 @@ class App:
         self.window = webview.create_window(
             TITLE, self.url, frameless=True, easy_drag=False, resizable=True,
             width=geo.get("width", 1200), height=geo.get("height", 780), x=geo.get("x"), y=geo.get("y"),
-            min_size=(900, 600), background_color=BACKGROUNDS.get(self.library.settings["theme"], "#14171F"))
+            min_size=MIN_SIZE, background_color=BACKGROUNDS.get(self.library.settings["theme"], "#14171F"))
         self.window.events.closing += self._on_closing
         self._start_tray()
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(data_dir() / "webview"),

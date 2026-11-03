@@ -126,6 +126,10 @@ class Api:
         return {"ok": True, "installed": True}
 
     def window(self, action: str) -> dict:
+        edge = action.removeprefix("resize-")
+        if action.startswith("resize-") and edge in ("n", "s", "e", "w", "ne", "nw", "se", "sw"):
+            self.hooks["resize"](edge)
+            return {"ok": True}
         if action not in ("show", "hide", "minimize", "quit"):
             raise ValueError(f"unknown window action {action!r}")
         self.hooks[action]()

@@ -299,7 +299,7 @@ const ACCENTS = [["theme", "Theme default", null], ["brass", "Brass", "#C9A15A"]
   ["green", "Green", "#30D158"], ["orange", "Orange", "#FF9F0A"], ["pink", "Pink", "#FF375F"], ["purple", "Purple", "#BF5AF2"]];
 const THEME_ACCENT = { ordel: "#C9A15A", graphite: "#0A84FF", light: "#007AFF", glass: "#0A84FF" };
 const APPEARANCE_DEFAULTS = { theme: "ordel", accent: "theme", picture_fit: "contain", density: "comfortable",
-  corners: "rounded", show_developer: true, tile_size: 200 };
+  corners: "rounded", show_developer: true, tile_size: 240 };
 
 function settingsHtml() {
   const s = S.data.settings;
@@ -532,6 +532,14 @@ document.addEventListener("click", (e) => {
     S.recording = true;
     t.classList.add("recording");
     t.textContent = "Press a shortcut…";
+  }
+});
+
+document.addEventListener("mousedown", (e) => {
+  const edge = e.target.closest("[data-edge]")?.dataset.edge;
+  if (edge && e.button === 0) {
+    e.preventDefault();
+    api("/api/window", { action: `resize-${edge}` }).catch(() => {});
   }
 });
 

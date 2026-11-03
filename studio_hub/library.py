@@ -13,7 +13,7 @@ DEFAULT_SETTINGS = {
     "theme": "ordel",
     "hotkey": "Ctrl+Shift+Space",
     "hide_after_add": False,
-    "tile_size": 200,
+    "tile_size": 240,
     "last_view": "all",
     "window": None,
     "onboarded": False,

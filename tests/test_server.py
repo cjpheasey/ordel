@@ -172,3 +172,12 @@ def test_rejects_non_json_post(env):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req)
     assert e.value.code == 415
+
+
+def test_window_resize_actions_are_validated(env):
+    base, api, *_ = env
+    edges = []
+    api.hooks["resize"] = edges.append
+    assert post(base + "/api/window", {"action": "resize-se"})[0] == 200
+    assert post(base + "/api/window", {"action": "resize-up"})[0] == 400
+    assert edges == ["se"]
