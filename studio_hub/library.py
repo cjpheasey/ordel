@@ -12,7 +12,7 @@ from .reaper_db import Plugin, tidy_developer
 DEFAULT_SETTINGS = {
     "theme": "graphite",
     "hotkey": "Ctrl+Shift+Space",
-    "hide_after_add": True,
+    "hide_after_add": False,
     "tile_size": 200,
     "last_view": "all",
     "window": None,

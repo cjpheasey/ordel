@@ -79,8 +79,15 @@ def test_state_lists_plugins_and_categories(env):
     assert state["reaper"]["connected"] is True and state["settings"]["theme"] == "graphite"
 
 
+def test_send_keeps_window_open_by_default(env):
+    base, api, fake, hidden = env
+    assert post(base + "/api/send", {"id": find(api, "AmpliTube 5")["id"]})[1]["ok"] is True
+    assert hidden == []
+
+
 def test_send_adds_and_marks_used(env):
     base, api, fake, hidden = env
+    api.library.update_settings(hide_after_add=True)
     pid = find(api, "AmpliTube 5")["id"]
     assert post(base + "/api/send", {"id": pid}) == (200, {"ok": True, "detail": "Track 1"})
     assert fake.received[-1] == ("ADD", "VST3: AmpliTube 5 (IK Multimedia)")

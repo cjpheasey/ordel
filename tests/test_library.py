@@ -84,7 +84,7 @@ def test_non_dict_plugin_entries_dropped(tmp_path):
 def test_update_settings_rejects_wrong_types(tmp_path):
     lib = Library(tmp_path / "l.json")
     lib.update_settings(window="x", hide_after_add="no", theme="neon", tile_size=260)
-    assert lib.settings["window"] is None and lib.settings["hide_after_add"] is True
+    assert lib.settings["window"] is None and lib.settings["hide_after_add"] is False
     assert lib.settings["theme"] == "graphite" and lib.settings["tile_size"] == 260
     lib.update_settings(window={"x": 1, "y": 2, "width": 900, "height": 600})
     assert lib.settings["window"]["width"] == 900
