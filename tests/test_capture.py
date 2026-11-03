@@ -31,7 +31,7 @@ def make(tmp_path, grab_fails=(), fake=True, die_on=None, helper=None):
         return True
 
     runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins,
-                           find_window=lambda name, timeout=8.0: name, grab=grab, helper=helper)
+                           find_window=lambda name, timeout=8.0, plugin_name='': name, grab=grab, helper=helper)
     return runner, lib, plugins, reaper, grabbed
 
 
@@ -188,7 +188,7 @@ def test_brief_heartbeat_gap_is_not_a_crash(tmp_path, monkeypatch):
     lib = Library(tmp_path / "lib.json")
     reaper = FakeReaper(tmp_path / "bridge", stall_after_open=1.0)  # busy loading a slow plugin
     runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins[:1],
-                           find_window=lambda name, timeout=8.0: None, grab=lambda h, o: False)
+                           find_window=lambda name, timeout=8.0, plugin_name='': None, grab=lambda h, o: False)
     runner.crash_grace = 3.0
     try:
         runner.start()
@@ -270,5 +270,57 @@ def test_reaper_session_only_opens_when_a_plugin_needs_it(tmp_path):
         runner.start([p.id for p in plugins if p.format == "VST3"])
         wait_done(runner)
         assert reaper.received == []
+    finally:
+        reaper.stop()
+
+
+def test_plugin_with_its_own_window_is_matched_by_exact_name():
+    from studio_hub.capture import window_matches
+    assert window_matches("VST3: The Klone  (Fazertone) - Track 1", "VST3: The Klone (Fazertone)", "The Klone")
+    assert window_matches("ReaNINJAM", "VST: ReaNINJAM (Cockos)", "ReaNINJAM")  # opens a window of its own
+    assert not window_matches("Some EQ window", "VST: EQ (Acme)", "EQ")  # short names must match exactly
+
+
+def test_separate_plugin_window_is_closed_after_capture(tmp_path):
+    closed = []
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.close_window = lambda hwnd, name: closed.append(name)
+    try:
+        runner.start([p.id for p in plugins if p.name == "ReaComp"])
+        wait_done(runner)
+        assert closed == ["ReaComp"]
+    finally:
+        reaper.stop()
+
+
+def test_blank_reaper_window_falls_back_to_the_plugins_own_window(tmp_path):
+    plugins = load_plugins(FIX)
+    lib = Library(tmp_path / "lib.json")
+    reaper = FakeReaper(tmp_path / "bridge")
+    grabbed, closed = [], []
+
+    def find(name, timeout=8.0, plugin_name=""):
+        return name if name else f"own window of {plugin_name}"  # name=None means: exact-title windows only
+
+    def grab(hwnd, out):
+        grabbed.append(hwnd)
+        if hwnd.startswith("own window"):
+            out.write_bytes(b"png")
+            return True
+        return False  # REAPER's FX window is empty for this plugin
+
+    def grab_own(hwnd, out):  # a plugin's own window keeps its whole contents (no REAPER strip to trim)
+        grabbed.append(("whole", hwnd))
+        return grab(hwnd, out)
+
+    runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins,
+                           find_window=find, grab=grab, grab_own=grab_own)
+    runner.close_window = lambda hwnd, name: closed.append(hwnd)
+    try:
+        runner.start([p.id for p in plugins if p.name == "ReaComp"])
+        wait_done(runner)
+        assert lib.capture_status(plugins[0].id) == "ok" or {v["name"]: v["capture"] for v in lib.view(plugins)}["ReaComp"] == "ok"
+        assert grabbed == ["VST: ReaComp (Cockos)", ("whole", "own window of ReaComp"), "own window of ReaComp"]
+        assert "own window of ReaComp" in closed
     finally:
         reaper.stop()

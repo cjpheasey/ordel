@@ -33,7 +33,26 @@ def title_matches(title: str, name: str) -> bool:
     return " ".join(name.lower().split()) in " ".join(title.lower().split())
 
 
-def find_plugin_window(name: str, timeout: float = 15.0) -> int | None:
+def window_matches(title: str, add_name: str | None, name: str) -> bool:
+    """REAPER's floating FX window, or a plugin's own window titled exactly its name (ReaNINJAM).
+
+    add_name=None looks for the plugin's own window only."""
+    return (add_name is not None and title_matches(title, add_name)) or title.strip() == name
+
+
+def close_own_window(hwnd: int, name: str) -> None:
+    """A plugin's own window outlives its track, so close it after capture. REAPER's FX windows are left alone."""
+    import win32con
+    import win32gui
+
+    try:
+        if win32gui.GetWindowText(hwnd).strip() == name:
+            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+    except Exception:
+        pass
+
+
+def find_plugin_window(name: str | None, timeout: float = 15.0, plugin_name: str = "") -> int | None:
     """The floating FX window REAPER opened for this plugin, e.g. 'VST3: Pro-Q 3 (FabFilter) - Track 1'."""
     import win32gui
     import win32process
@@ -44,7 +63,7 @@ def find_plugin_window(name: str, timeout: float = 15.0) -> int | None:
         found = []
 
         def visit(hwnd, _):
-            if win32gui.IsWindowVisible(hwnd) and title_matches(win32gui.GetWindowText(hwnd), name):
+            if win32gui.IsWindowVisible(hwnd) and window_matches(win32gui.GetWindowText(hwnd), name, plugin_name):
                 if win32process.GetWindowThreadProcessId(hwnd)[1] in pids:
                     found.append(hwnd)
 
@@ -183,7 +202,7 @@ def _screen_grab(hwnd: int, area: Callable[[int], tuple] = _editor_rect) -> Imag
 
 class CaptureRunner:
     def __init__(self, bridge, library, snapshots_dir: Path, plugins_fn: Callable,
-                 find_window=find_plugin_window, grab=grab_window, helper=None):
+                 find_window=find_plugin_window, grab=grab_window, helper=None, grab_own=None):
         self.bridge = bridge
         self.library = library
         self.snapshots_dir = Path(snapshots_dir)
@@ -192,6 +211,9 @@ class CaptureRunner:
         self.grab = grab
         # helper(plugin, out) -> 'ok' | 'failed' | 'unsupported' | 'crashed' | 'hung', or None if it can't take it
         self.helper = helper
+        self.close_window = close_own_window
+        # A plugin's own window has no REAPER strip to trim, so it keeps its whole contents.
+        self.grab_own = grab_own or (lambda hwnd, out: grab_window(hwnd, out, area=client_rect))
         self._thread: threading.Thread | None = None
         self._resume = threading.Event()
         self._resume.set()
@@ -297,14 +319,26 @@ class CaptureRunner:
                 log.info("capture %s: REAPER couldn't open it (%s)", plugin.add_name, detail)
                 return "failed"
             # REAPER titles the window with its full name, e.g. 'VST3i: Sitala (Decomposer) (32 out) - Track 1'
-            hwnd = self.find_window(plugin.add_name)
+            hwnd = self.find_window(plugin.add_name, plugin_name=plugin.name)
             if not hwnd:
                 log.info("capture %s: its window never appeared", plugin.add_name)
                 return "failed"
-            if not self.grab(hwnd, self.snapshots_dir / f"{plugin.id}.png"):
+            out = self.snapshots_dir / f"{plugin.id}.png"
+            try:
+                if self.grab(hwnd, out):
+                    return "ok"
+                # Some plugins leave REAPER's window empty and draw in a window of their own (ReaNINJAM).
+                own = self.find_window(None, timeout=3.0, plugin_name=plugin.name)
+                if own and own != hwnd:
+                    try:
+                        if self.grab_own(own, out):
+                            return "ok"
+                    finally:
+                        self.close_window(own, plugin.name)
                 log.info("capture %s: picture came out blank or too small", plugin.add_name)
                 return "failed"
-            return "ok"
+            finally:
+                self.close_window(hwnd, plugin.name)
         except Exception:
             log.exception("capture failed for %s", plugin.name)
             return "failed"

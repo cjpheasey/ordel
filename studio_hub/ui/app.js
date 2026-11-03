@@ -266,7 +266,7 @@ function settingsHtml() {
           <button class="btn" data-action="refresh">${icon("refresh")}Refresh</button></div>
       </div>
       <div class="sheet-section"><h3>Pictures</h3>
-        <div class="row"><span class="k">${missing ? `${plural(missing, "plugin")} without a picture` : "Every plugin has a picture"}<small>Captured in a separate REAPER tab. Your project isn't touched.</small></span>
+        <div class="row"><span class="k">${missing ? `${plural(missing, "plugin")} without a picture` : "Every plugin has a picture"}<small>Each plugin is opened once and photographed. Your project isn't touched.</small></span>
           <span style="display:flex;gap:8px">
             ${missing ? `<button class="btn" data-action="capture-missing" ${r.connected ? "" : "disabled"}>Capture missing</button>` : ""}
             <button class="btn quiet" data-action="recapture-all" ${r.connected ? "" : "disabled"}>Recapture all</button></span></div>
@@ -292,7 +292,7 @@ function welcomeHtml() {
       <div class="steps">
         ${step(n > 0, n > 0 ? `Found ${plural(n, "plugin")}` : "No plugins found", n > 0 ? "Read from REAPER's plugin scan" : "Open REAPER and scan your plugins first", n > 0 ? "" : '<button class="btn" data-action="refresh">Refresh</button>')}
         ${step(r.connected, "Connect REAPER", r.connected ? "Connected" : "Adds a small script to REAPER so Mise can add plugins to tracks", r.connected ? "" : '<button class="btn primary" data-action="connect">Connect</button>')}
-        ${step(pictures > 0 && !cap.running, "Capture pictures", cap.running ? `Now ${esc(cap.current || "starting")}. You can keep using Mise.` : `Opens each plugin once in a separate REAPER tab. About ${minutes} min.`, pictures > 0 && !cap.running ? "" : captureAction)}
+        ${step(pictures > 0 && !cap.running, "Capture pictures", cap.running ? `Now ${esc(cap.current || "starting")}. You can keep using Mise.` : `Opens each plugin once and photographs it. About ${minutes} min.`, pictures > 0 && !cap.running ? "" : captureAction)}
       </div>
     </div>
     <div class="sheet-foot"><button class="btn ${pictures > 0 || cap.running ? "primary" : "quiet"}" data-action="finish-welcome">${pictures > 0 || cap.running ? "Done" : "Skip for now"}</button></div>`;
