@@ -1,4 +1,4 @@
-"""Mise desktop app: the window, the global shortcut and the tray icon around the local server."""
+"""Ordel desktop app: the window, the global shortcut and the tray icon around the local server."""
 import ctypes
 import json
 import logging
@@ -22,7 +22,7 @@ from .library import Library
 from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
 from .server import make_server
 
-TITLE = "Mise"
+TITLE = "Ordel"
 BACKGROUNDS = {"graphite": "#1E1E20", "light": "#FFFFFF", "glass": "#121218"}
 log = logging.getLogger("studio_hub")
 
@@ -50,7 +50,7 @@ def _light_taskbar() -> bool:
 
 
 def _already_running() -> bool:
-    ctypes.windll.kernel32.CreateMutexW(None, False, "Mise.SingleInstance")
+    ctypes.windll.kernel32.CreateMutexW(None, False, "Ordel.SingleInstance")
     return ctypes.windll.kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
 
 
@@ -143,10 +143,10 @@ class App:
 
     # --- start ---
     def _start_tray(self) -> None:
-        menu = pystray.Menu(pystray.MenuItem("Show Mise", lambda: self.show(), default=True),
+        menu = pystray.Menu(pystray.MenuItem("Show Ordel", lambda: self.show(), default=True),
                             pystray.MenuItem("Quit", lambda: self.quit()))
         tray = "assets/tray-light.png" if _light_taskbar() else "assets/tray.png"
-        self.tray = pystray.Icon("Mise", Image.open(resource(tray)), TITLE, menu)
+        self.tray = pystray.Icon("Ordel", Image.open(resource(tray)), TITLE, menu)
         self.tray.run_detached()
 
     def run(self) -> None:
@@ -174,7 +174,7 @@ class App:
 
 
 def main() -> None:
-    if len(sys.argv) > 2 and sys.argv[1] == "--capture-helper":  # Mise started as its own capture helper
+    if len(sys.argv) > 2 and sys.argv[1] == "--capture-helper":  # Ordel started as its own capture helper
         from . import helper
         helper.run(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
         return
@@ -186,5 +186,5 @@ def main() -> None:
     try:
         App().run()
     except Exception:
-        log.exception("Mise crashed")
+        log.exception("Ordel crashed")
         raise

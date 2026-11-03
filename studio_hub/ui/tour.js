@@ -5,7 +5,7 @@ const TOUR_STEPS = [
   {
     target: ".brand",
     title: "One shortcut away",
-    body: () => `Press <kbd>${esc(S.data.settings.hotkey)}</kbd> in any app, even REAPER, to show or hide Mise.`,
+    body: () => `Press <kbd>${esc(S.data.settings.hotkey)}</kbd> in any app, even REAPER, to show or hide Ordel.`,
   },
   {
     target: "#nav-switch",

@@ -1,4 +1,4 @@
-"""Where Mise reads REAPER's files and keeps its own data."""
+"""Where Ordel reads REAPER's files and keeps its own data."""
 import os
 import sys
 from pathlib import Path

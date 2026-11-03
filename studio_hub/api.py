@@ -1,4 +1,4 @@
-"""Everything the UI can ask Mise to do."""
+"""Everything the UI can ask Ordel to do."""
 import subprocess
 import time
 from pathlib import Path
