@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studio Hub</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-theme="graphite">
+  <div class="wash" aria-hidden="true"></div>
+
+  <header class="titlebar pywebview-drag-region">
+    <div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Studio Hub</div>
+    <div class="window-controls">
+      <button class="wc" data-window="minimize" aria-label="Minimise"></button>
+      <button class="wc wc-close" data-window="hide" aria-label="Close"></button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="sidebar" aria-label="Library">
+      <div class="nav-group" id="nav-library"></div>
+      <div class="nav-heading">Categories</div>
+      <div class="nav-group" id="nav-categories"></div>
+      <div class="sidebar-foot">
+        <button class="reaper-status" id="reaper-status"></button>
+        <button class="icon-btn" id="open-settings" aria-label="Settings" title="Settings (Ctrl+,)"></button>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="toolbar">
+        <div class="heading">
+          <h1 id="view-title">All plugins</h1>
+          <span class="count" id="view-count"></span>
+        </div>
+        <div class="tools">
+          <label class="size" title="Picture size">
+            <span class="sr-only">Picture size</span>
+            <input type="range" id="tile-size" min="150" max="320" step="10">
+          </label>
+          <div class="search">
+            <span id="search-icon"></span>
+            <input id="search" type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search plugins">
+          </div>
+        </div>
+      </div>
+      <div class="capture-bar" id="capture-bar" hidden></div>
+      <div class="banner" id="banner" hidden></div>
+      <div class="scroller" id="scroller">
+        <ul class="grid" id="grid" role="list"></ul>
+        <div class="empty" id="empty" hidden></div>
+      </div>
+    </main>
+
+    <aside class="detail" id="detail" aria-label="Plugin details" hidden></aside>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"></div>
+  </div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

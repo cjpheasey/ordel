@@ -1,0 +1,7 @@
+pywebview>=6.2
+pywin32
+mss
+pystray
+Pillow
+pytest
+lupa

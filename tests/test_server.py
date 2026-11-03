@@ -1,0 +1,167 @@
+import json
+import threading
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import pytest
+
+from studio_hub.api import Api
+from studio_hub.bridge import ReaperBridge
+from studio_hub.library import Library
+from studio_hub.server import make_server
+from tests.fake_reaper import FakeReaper
+
+FIX = Path(__file__).parent / "fixtures" / "reaper"
+
+
+class StubCapture:
+    def __init__(self):
+        self.calls = []
+
+    def start(self, ids=None): self.calls.append(("start", ids))
+    def pause(self): self.calls.append(("pause",))
+    def resume(self): self.calls.append(("resume",))
+    def cancel(self): self.calls.append(("cancel",))
+    def status(self): return {"running": False, "paused": False, "done": 0, "total": 0, "current": None, "failed": 0, "error": None}
+
+
+@pytest.fixture
+def env(tmp_path):
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text("<h1>hi</h1>")
+    (tmp_path / "secret.txt").write_text("nope")
+    snaps = tmp_path / "snaps"
+    snaps.mkdir()
+    hidden = []
+    fake = FakeReaper(tmp_path / "bridge", {"ADD": "OK\tTrack 1"})
+    api = Api(FIX, Library(tmp_path / "lib.json"), ReaperBridge(tmp_path / "bridge"), StubCapture(),
+              {"hide": lambda: hidden.append(1), "minimize": lambda: None, "quit": lambda: None,
+               "pick_image": lambda: None, "set_hotkey": lambda combo: combo != "Ctrl+Shift+F12"})
+    server = make_server(api, ui, snaps)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    yield base, api, fake, hidden
+    server.shutdown()
+    fake.stop()
+
+
+def get(url):
+    with urllib.request.urlopen(url) as r:
+        return r.status, r.read()
+
+
+def post(url, body):
+    data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data, {"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def find(api, name):
+    return next(p for p in api.state()["plugins"] if p["name"] == name)
+
+
+def test_serves_index(env):
+    base, *_ = env
+    assert get(base + "/") == (200, b"<h1>hi</h1>")
+
+
+def test_state_lists_plugins_and_categories(env):
+    base, *_ = env
+    status, body = get(base + "/api/state")
+    state = json.loads(body)
+    assert status == 200 and len(state["plugins"]) == 7 and state["categories"][0]["key"] == "eq"
+    assert state["reaper"]["connected"] is True and state["settings"]["theme"] == "graphite"
+
+
+def test_send_adds_and_marks_used(env):
+    base, api, fake, hidden = env
+    pid = find(api, "AmpliTube 5")["id"]
+    assert post(base + "/api/send", {"id": pid}) == (200, {"ok": True, "detail": "Track 1"})
+    assert fake.received[-1] == ("ADD", "VST3: AmpliTube 5 (IK Multimedia)")
+    assert hidden == [1] and find(api, "AmpliTube 5")["last_used"] > 0
+
+
+def test_send_unknown_id(env):
+    base, *_ = env
+    assert post(base + "/api/send", {"id": "zzz"}) == (200, {"ok": False, "detail": "unknown"})
+
+
+def test_plugin_update_category_override(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    status, _ = post(base + "/api/plugin", {"id": pid, "category": "eq", "favourite": True})
+    item = find(api, "ReaComp")
+    assert status == 200 and item["category"] == "eq" and item["favourite"]
+
+
+def test_invalid_category_is_400(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    assert post(base + "/api/plugin", {"id": pid, "category": "nope"})[0] == 400
+
+
+def test_settings_hotkey_failure_reported(env):
+    base, *_ = env
+    status, body = post(base + "/api/settings", {"hotkey": "Ctrl+Shift+F12"})
+    assert status == 200 and body["hotkey_ok"] is False and body["settings"]["hotkey"] == "Ctrl+Shift+Space"
+
+
+def test_capture_actions_forwarded(env):
+    base, api, *_ = env
+    post(base + "/api/capture", {"action": "retake", "id": "abc"})
+    post(base + "/api/capture", {"action": "start"})
+    assert api.capture.calls == [("start", ["abc"]), ("start", None)]
+
+
+def test_static_rejects_traversal(env):
+    base, *_ = env
+    with pytest.raises(urllib.error.HTTPError) as e:
+        get(base + "/..%2Fsecret.txt")
+    assert e.value.code == 404
+
+
+def test_bad_json_returns_400(env):
+    base, *_ = env
+    assert post(base + "/api/send", b"{nope")[0] == 400
+
+
+def test_unknown_route_404(env):
+    base, *_ = env
+    assert post(base + "/api/nothing", {})[0] == 404
+
+
+def test_state_reports_hotkey_ok(env):
+    base, api, *_ = env
+    api.hotkey_ok = False
+    assert json.loads(get(base + "/api/state")[1])["hotkey_ok"] is False
+
+
+def test_same_hotkey_can_be_registered_again(env):
+    base, api, *_ = env
+    calls = []
+    api.hooks["set_hotkey"] = lambda combo: calls.append(combo) or True
+    post(base + "/api/settings", {"hotkey": "Ctrl+Shift+Space"})
+    assert calls == ["Ctrl+Shift+Space"] and api.hotkey_ok is True
+
+
+def test_rejects_foreign_host(env):
+    base, *_ = env
+    req = urllib.request.Request(base + "/api/window", b'{"action":"quit"}',
+                                 {"Content-Type": "application/json", "Host": "evil.example"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req)
+    assert e.value.code == 403
+
+
+def test_rejects_non_json_post(env):
+    base, *_ = env
+    req = urllib.request.Request(base + "/api/window", b'{"action":"quit"}', {"Content-Type": "text/plain"})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req)
+    assert e.value.code == 415
