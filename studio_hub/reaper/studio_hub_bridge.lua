@@ -1,5 +1,5 @@
--- Studio Hub bridge: lets the Studio Hub app add plugins to tracks and capture plugin windows.
--- Installed by Studio Hub. Started automatically from Scripts/__startup.lua.
+-- Mise bridge: lets the Mise app add plugins to tracks and capture plugin windows.
+-- Installed by Mise. Started automatically from Scripts/__startup.lua.
 
 local BRIDGE_DIR = --[[BRIDGE_DIR]]
 local SEP = package.config:sub(1, 1)
@@ -52,7 +52,7 @@ local running = true
 
 function handlers.PING() return "OK" end
 
--- Lets Studio Hub stop this copy before it starts an updated one.
+-- Lets Mise stop this copy before it starts an updated one.
 function handlers.QUIT()
   running = false
   return "OK"
@@ -65,7 +65,7 @@ function handlers.ADD(name)
   if not track then return "ERR\tNO_TRACK" end
   reaper.Undo_BeginBlock2(proj)
   local idx = reaper.TrackFX_AddByName(track, name, false, -1)
-  reaper.Undo_EndBlock2(proj, "Studio Hub: add " .. name, -1)
+  reaper.Undo_EndBlock2(proj, "Mise: add " .. name, -1)
   if idx < 0 then return "ERR\tNOT_FOUND" end
   reaper.TrackFX_Show(track, idx, 3)
   local _, track_name = reaper.GetTrackName(track)

@@ -16,7 +16,7 @@ STILL_ACTIVE = 259
 
 
 def run(path: str, name: str | None) -> None:
-    """Helper side: load the plugin and show its editor until Studio Hub kills this process."""
+    """Helper side: load the plugin and show its editor until Mise kills this process."""
     try:
         import pedalboard
 

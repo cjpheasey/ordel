@@ -1,4 +1,4 @@
-"""Studio Hub desktop app: the window, the global shortcut and the tray icon around the local server."""
+"""Mise desktop app: the window, the global shortcut and the tray icon around the local server."""
 import ctypes
 import json
 import logging
@@ -22,7 +22,7 @@ from .library import Library
 from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
 from .server import make_server
 
-TITLE = "Studio Hub"
+TITLE = "Mise"
 BACKGROUNDS = {"graphite": "#1E1E20", "light": "#FFFFFF", "glass": "#121218"}
 log = logging.getLogger("studio_hub")
 
@@ -39,7 +39,7 @@ def safe_geometry(geo: dict | None) -> dict:
 
 
 def _already_running() -> bool:
-    ctypes.windll.kernel32.CreateMutexW(None, False, "StudioHub.SingleInstance")
+    ctypes.windll.kernel32.CreateMutexW(None, False, "Mise.SingleInstance")
     return ctypes.windll.kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
 
 
@@ -132,9 +132,9 @@ class App:
 
     # --- start ---
     def _start_tray(self) -> None:
-        menu = pystray.Menu(pystray.MenuItem("Show Studio Hub", lambda: self.show(), default=True),
+        menu = pystray.Menu(pystray.MenuItem("Show Mise", lambda: self.show(), default=True),
                             pystray.MenuItem("Quit", lambda: self.quit()))
-        self.tray = pystray.Icon("StudioHub", Image.open(resource("assets/icon.png")), TITLE, menu)
+        self.tray = pystray.Icon("Mise", Image.open(resource("assets/icon.png")), TITLE, menu)
         self.tray.run_detached()
 
     def run(self) -> None:
@@ -162,7 +162,7 @@ class App:
 
 
 def main() -> None:
-    if len(sys.argv) > 2 and sys.argv[1] == "--capture-helper":  # Studio Hub started as its own capture helper
+    if len(sys.argv) > 2 and sys.argv[1] == "--capture-helper":  # Mise started as its own capture helper
         from . import helper
         helper.run(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
         return
@@ -174,5 +174,5 @@ def main() -> None:
     try:
         App().run()
     except Exception:
-        log.exception("Studio Hub crashed")
+        log.exception("Mise crashed")
         raise

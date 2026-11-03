@@ -1,4 +1,4 @@
-"""Where Studio Hub reads REAPER's files and keeps its own data."""
+"""Where Mise reads REAPER's files and keeps its own data."""
 import os
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ def reaper_dir() -> Path:
 
 
 def data_dir() -> Path:
-    path = Path(os.environ.get("STUDIOHUB_DATA_DIR") or _appdata() / "StudioHub")
+    path = Path(os.environ.get("STUDIOHUB_DATA_DIR") or _appdata() / "StudioHub")  # folder name kept from before the rename, so existing libraries carry over
     path.mkdir(parents=True, exist_ok=True)
     return path
 

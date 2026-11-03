@@ -1,4 +1,4 @@
-/* Studio Hub — 8px grid, one type family, colour comes from plugin art and category tags. */
+/* Mise — 8px grid, one type family, colour comes from plugin art and category tags. */
 
 :root {
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -117,12 +117,7 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 }
 [data-theme="glass"] .titlebar { background: transparent; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: var(--text-2); }
-.mark { display: grid; grid-template-columns: 6px 6px; gap: 2px; }
-.mark i { width: 6px; height: 6px; border-radius: 2px; }
-.mark i:nth-child(1) { background: #30d158; }
-.mark i:nth-child(2) { background: #ff9f0a; }
-.mark i:nth-child(3) { background: #64d2ff; }
-.mark i:nth-child(4) { background: #bf5af2; }
+.mark { width: 18px; height: 18px; flex: none; }
 .window-controls { display: flex; gap: 4px; }
 .wc {
   width: 32px; height: 28px;

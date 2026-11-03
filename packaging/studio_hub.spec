@@ -14,6 +14,6 @@ a = Analysis(
     hiddenimports=["pystray._win32", "webview.platforms.edgechromium", "webview.platforms.winforms"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="StudioHub", console=False,
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Mise", console=False,
           icon=str(ROOT / "studio_hub" / "assets" / "icon.ico"))
-coll = COLLECT(exe, a.binaries, a.datas, name="StudioHub")
+coll = COLLECT(exe, a.binaries, a.datas, name="Mise")

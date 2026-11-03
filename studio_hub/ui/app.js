@@ -144,7 +144,7 @@ function renderBanners() {
 function emptyState() {
   if (!S.data.reaper.library_found) {
     return `<div class="glyph">${icon("plug")}</div><h2>No plugins found</h2>
-      <p>Studio Hub reads the plugin list REAPER builds when it scans. Open REAPER, run a plugin scan in Preferences, then refresh.</p>
+      <p>Mise reads the plugin list REAPER builds when it scans. Open REAPER, run a plugin scan in Preferences, then refresh.</p>
       <button class="btn" data-action="refresh">${icon("refresh")}Refresh</button>`;
   }
   if (S.query) {
@@ -158,7 +158,7 @@ function emptyState() {
   }
   if (S.view === "recent") {
     return `<div class="glyph">${icon("clock")}</div><h2>Nothing used yet</h2>
-      <p>Plugins you add to a track from Studio Hub show up here.</p>`;
+      <p>Plugins you add to a track from Mise show up here.</p>`;
   }
   return `<div class="glyph">${icon("grid")}</div><h2>This category is empty</h2>
     <p>Drag a plugin onto a category in the sidebar to move it.</p>`;
@@ -254,7 +254,7 @@ function settingsHtml() {
     <div class="sheet-body">
       <div class="sheet-section"><h3>Appearance</h3><div class="themes">${theme("graphite", "Graphite")}${theme("light", "Light")}${theme("glass", "Glass")}</div></div>
       <div class="sheet-section">
-        <div class="row"><span class="k">Show Studio Hub<small>Works from any app, including REAPER</small></span>
+        <div class="row"><span class="k">Show Mise<small>Works from any app, including REAPER</small></span>
           <span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><button class="keycap" id="hotkey" data-autofocus>${esc(s.hotkey)}</button><span class="hint-error" id="hotkey-error" ${S.data.hotkey_ok ? "hidden" : ""}>Shortcut unavailable. Another app is using it.</span></span></div>
         <div class="row"><label class="k" for="hide-after-add">Hide after adding a plugin<small>Go straight back to your mix</small></label>
           <input type="checkbox" class="switch" id="hide-after-add" ${s.hide_after_add ? "checked" : ""}></div>
@@ -272,7 +272,7 @@ function settingsHtml() {
             <button class="btn quiet" data-action="recapture-all" ${r.connected ? "" : "disabled"}>Recapture all</button></span></div>
       </div>
     </div>
-    <div class="sheet-foot"><button class="btn quiet" data-action="quit">Quit Studio Hub</button></div>`;
+    <div class="sheet-foot"><button class="btn quiet" data-action="quit">Quit Mise</button></div>`;
 }
 
 function welcomeHtml() {
@@ -286,13 +286,13 @@ function welcomeHtml() {
   let captureAction = `<button class="btn" data-action="capture-missing" ${r.connected ? "" : "disabled"}>Start</button>`;
   if (cap.running) captureAction = `<span class="count">${cap.done} of ${cap.total}</span>`;
   return `
-    <div class="sheet-head"><h2 id="sheet-title">Welcome to Studio Hub</h2></div>
+    <div class="sheet-head"><h2 id="sheet-title">Welcome to Mise</h2></div>
     <div class="sheet-body">
       <p class="lede">See every plugin you own as a picture of its interface, find it by sight, and send it straight to a track in REAPER.</p>
       <div class="steps">
         ${step(n > 0, n > 0 ? `Found ${plural(n, "plugin")}` : "No plugins found", n > 0 ? "Read from REAPER's plugin scan" : "Open REAPER and scan your plugins first", n > 0 ? "" : '<button class="btn" data-action="refresh">Refresh</button>')}
-        ${step(r.connected, "Connect REAPER", r.connected ? "Connected" : "Adds a small script to REAPER so Studio Hub can add plugins to tracks", r.connected ? "" : '<button class="btn primary" data-action="connect">Connect</button>')}
-        ${step(pictures > 0 && !cap.running, "Capture pictures", cap.running ? `Now ${esc(cap.current || "starting")}. You can keep using Studio Hub.` : `Opens each plugin once in a separate REAPER tab. About ${minutes} min.`, pictures > 0 && !cap.running ? "" : captureAction)}
+        ${step(r.connected, "Connect REAPER", r.connected ? "Connected" : "Adds a small script to REAPER so Mise can add plugins to tracks", r.connected ? "" : '<button class="btn primary" data-action="connect">Connect</button>')}
+        ${step(pictures > 0 && !cap.running, "Capture pictures", cap.running ? `Now ${esc(cap.current || "starting")}. You can keep using Mise.` : `Opens each plugin once in a separate REAPER tab. About ${minutes} min.`, pictures > 0 && !cap.running ? "" : captureAction)}
       </div>
     </div>
     <div class="sheet-foot"><button class="btn ${pictures > 0 || cap.running ? "primary" : "quiet"}" data-action="finish-welcome">${pictures > 0 || cap.running ? "Done" : "Skip for now"}</button></div>`;
