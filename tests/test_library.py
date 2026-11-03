@@ -102,3 +102,10 @@ def test_sidebar_mode_setting(tmp_path):
     lib.update_settings(sidebar_mode="developers")
     lib.update_settings(sidebar_mode="nonsense")
     assert Library(tmp_path / "l.json").settings["sidebar_mode"] == "developers"
+
+
+def test_tour_starts_unseen_and_is_remembered(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    assert lib.settings["toured"] is False
+    lib.update_settings(toured=True)
+    assert Library(tmp_path / "l.json").settings["toured"] is True

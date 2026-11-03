@@ -320,7 +320,7 @@ function settingsHtml() {
             <button class="btn quiet" data-action="recapture-all" ${r.connected ? "" : "disabled"}>Recapture all</button></span></div>
       </div>
     </div>
-    <div class="sheet-foot"><button class="btn quiet" data-action="quit">Quit Mise</button></div>`;
+    <div class="sheet-foot"><button class="btn quiet" data-action="replay-tour">Show the tour</button><button class="btn quiet" data-action="quit">Quit Mise</button></div>`;
 }
 
 function welcomeHtml() {
@@ -481,7 +481,12 @@ const actions = {
   "custom-image": async () => { const r = await api("/api/custom-image", { id: S.selected }); if (r.ok) toast("Picture updated"); load(); },
   "capture-missing": async () => { await api("/api/capture", { action: "start" }); load(); },
   "recapture-all": async () => { await api("/api/capture", { action: "recapture_all" }); closeSheet(); load(); },
-  "finish-welcome": async () => { await saveSettings({ onboarded: true }); closeSheet(); },
+  "finish-welcome": async () => {
+    await saveSettings({ onboarded: true });
+    closeSheet();
+    if (!S.data.settings.toured) startTour();
+  },
+  "replay-tour": () => { closeSheet(); startTour(); },
   quit: () => api("/api/window", { action: "quit" }),
 };
 
@@ -621,6 +626,7 @@ document.querySelector('[data-window="hide"]').innerHTML = icon("close");
   if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|dev):/.test(S.view)) S.view = "all";
   render();
   if (!S.data.settings.onboarded) showSheet("welcome");
+  else if (!S.data.settings.toured) startTour();
   setTimeout(poll, 3000);
   window.addEventListener("focus", () => $("#search").focus());
 })();

@@ -15,6 +15,7 @@ Built for mixing sessions where you remember a plugin by its face, not its name.
 - **One shortcut away.** Press **Ctrl+Shift+Space** from anywhere, including REAPER, to show or hide Mise.
 - **Straight to the track.** Double-click a plugin, or press Enter, and it's added to the selected REAPER track with its window open.
 - **Three themes.** Graphite, Light and Glass, each with colour-coded categories.
+- **A quick tour.** The first time you open Mise, a five-step tour shows you around. Replay it any time from Settings.
 - **Keyboard first.** Type to search, arrow keys to move, Enter to add, F to favourite, Esc to clear or hide.
 
 ## How it works

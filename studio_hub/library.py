@@ -18,6 +18,7 @@ DEFAULT_SETTINGS = {
     "window": None,
     "onboarded": False,
     "sidebar_mode": "categories",
+    "toured": False,
 }
 CAPTURE_STATES = {"none", "ok", "failed", "custom", "crashed"}
 THEMES = {"graphite", "light", "glass"}
