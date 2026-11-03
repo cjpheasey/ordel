@@ -38,6 +38,17 @@ def safe_geometry(geo: dict | None) -> dict:
     return out
 
 
+def _light_taskbar() -> bool:
+    """Windows' light taskbar would hide the white knob, so the tray uses a darker version there."""
+    import winreg
+
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        return winreg.QueryValueEx(key, "SystemUsesLightTheme")[0] == 1
+    except OSError:
+        return False
+
+
 def _already_running() -> bool:
     ctypes.windll.kernel32.CreateMutexW(None, False, "Mise.SingleInstance")
     return ctypes.windll.kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
@@ -134,7 +145,8 @@ class App:
     def _start_tray(self) -> None:
         menu = pystray.Menu(pystray.MenuItem("Show Mise", lambda: self.show(), default=True),
                             pystray.MenuItem("Quit", lambda: self.quit()))
-        self.tray = pystray.Icon("Mise", Image.open(resource("assets/icon.png")), TITLE, menu)
+        tray = "assets/tray-light.png" if _light_taskbar() else "assets/tray.png"
+        self.tray = pystray.Icon("Mise", Image.open(resource(tray)), TITLE, menu)
         self.tray.run_detached()
 
     def run(self) -> None:
