@@ -76,7 +76,7 @@ def test_state_lists_plugins_and_categories(env):
     status, body = get(base + "/api/state")
     state = json.loads(body)
     assert status == 200 and len(state["plugins"]) == 7 and state["categories"][0]["key"] == "eq"
-    assert state["reaper"]["connected"] is True and state["settings"]["theme"] == "graphite"
+    assert state["reaper"]["connected"] is True and state["settings"]["theme"] == "ordel"
 
 
 def test_send_keeps_window_open_by_default(env):

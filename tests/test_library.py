@@ -10,7 +10,7 @@ def plugin(name="Opto", tags=("Dynamics",)):
 
 def test_defaults_when_missing(tmp_path):
     lib = Library(tmp_path / "library.json")
-    assert lib.settings == DEFAULT_SETTINGS and lib.settings["theme"] == "graphite"
+    assert lib.settings == DEFAULT_SETTINGS and lib.settings["theme"] == "ordel"
     assert lib.settings["hotkey"] == "Ctrl+Shift+Space"
 
 
@@ -71,7 +71,7 @@ def test_wrong_shape_json_falls_back_to_defaults(tmp_path):
     path = tmp_path / "library.json"
     path.write_text('{"settings": {"window": "x", "theme": 5, "tile_size": 240}, "plugins": [1, 2]}')
     lib = Library(path)
-    assert lib.settings["window"] is None and lib.settings["theme"] == "graphite" and lib.settings["tile_size"] == 240
+    assert lib.settings["window"] is None and lib.settings["theme"] == "ordel" and lib.settings["tile_size"] == 240
     assert lib.view([plugin()])[0]["category"] == "dynamics"
 
 
@@ -85,7 +85,7 @@ def test_update_settings_rejects_wrong_types(tmp_path):
     lib = Library(tmp_path / "l.json")
     lib.update_settings(window="x", hide_after_add="no", theme="neon", tile_size=260)
     assert lib.settings["window"] is None and lib.settings["hide_after_add"] is False
-    assert lib.settings["theme"] == "graphite" and lib.settings["tile_size"] == 260
+    assert lib.settings["theme"] == "ordel" and lib.settings["tile_size"] == 260
     lib.update_settings(window={"x": 1, "y": 2, "width": 900, "height": 600})
     assert lib.settings["window"]["width"] == 900
 
@@ -109,3 +109,18 @@ def test_tour_starts_unseen_and_is_remembered(tmp_path):
     assert lib.settings["toured"] is False
     lib.update_settings(toured=True)
     assert Library(tmp_path / "l.json").settings["toured"] is True
+
+
+def test_appearance_defaults_match_the_brand(tmp_path):
+    s = Library(tmp_path / "l.json").settings
+    assert s["theme"] == "ordel" and s["accent"] == "theme"
+    assert (s["picture_fit"], s["density"], s["corners"], s["show_developer"]) == ("contain", "comfortable", "rounded", True)
+
+
+def test_appearance_settings_only_accept_known_values(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.update_settings(accent="blue", picture_fit="cover", density="compact", corners="square", show_developer=False)
+    lib.update_settings(accent="neon", picture_fit="stretch", density="tiny", corners="wobbly", show_developer="no")
+    s = Library(tmp_path / "l.json").settings
+    assert (s["accent"], s["picture_fit"], s["density"], s["corners"], s["show_developer"]) == (
+        "blue", "cover", "compact", "square", False)

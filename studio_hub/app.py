@@ -23,7 +23,7 @@ from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
 from .server import make_server
 
 TITLE = "Ordel"
-BACKGROUNDS = {"graphite": "#1E1E20", "light": "#FFFFFF", "glass": "#121218"}
+BACKGROUNDS = {"ordel": "#14171F", "graphite": "#1E1E20", "light": "#FFFFFF", "glass": "#121218"}
 log = logging.getLogger("studio_hub")
 
 
@@ -159,7 +159,7 @@ class App:
         self.window = webview.create_window(
             TITLE, self.url, frameless=True, easy_drag=False, resizable=True,
             width=geo.get("width", 1200), height=geo.get("height", 780), x=geo.get("x"), y=geo.get("y"),
-            min_size=(900, 600), background_color=BACKGROUNDS.get(self.library.settings["theme"], "#1E1E20"))
+            min_size=(900, 600), background_color=BACKGROUNDS.get(self.library.settings["theme"], "#14171F"))
         self.window.events.closing += self._on_closing
         self._start_tray()
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(data_dir() / "webview"),

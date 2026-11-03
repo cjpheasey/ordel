@@ -14,7 +14,7 @@ Built for mixing sessions where you remember a plugin by its face, not its name.
 - **Browse by developer.** Switch the sidebar to Developers to see everything from Waves, FabFilter or Plugin Alliance, then narrow with one click: Waves EQs, or every developer's reverbs.
 - **One shortcut away.** Press **Ctrl+Shift+Space** from anywhere, including REAPER, to show or hide Ordel.
 - **Straight to the track.** Double-click a plugin, or press Enter, and it's added to the selected REAPER track with its window open.
-- **Three themes.** Graphite, Light and Glass, each with colour-coded categories.
+- **Make it yours.** Four themes (Ordel, Graphite, Light and Glass), seven accent colours, fit or fill pictures, comfortable or compact layouts, rounded or square corners, and adjustable picture size.
 - **A quick tour.** The first time you open Ordel, a five-step tour shows you around. Replay it any time from Settings.
 - **Keyboard first.** Type to search, arrow keys to move, Enter to add, F to favourite, Esc to clear or hide.
 

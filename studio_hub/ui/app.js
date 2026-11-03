@@ -101,7 +101,11 @@ const shotUrl = (p) => `/snapshots/${p.id}.png?v=${p.shot || 0}`;
 
 function render() {
   if (!S.data) return;
-  document.body.dataset.theme = S.data.settings.theme;
+  const st = S.data.settings;
+  Object.assign(document.body.dataset, {
+    theme: st.theme, accent: st.accent, fit: st.picture_fit, density: st.density, corners: st.corners,
+    developer: st.show_developer ? "on" : "off",
+  });
   const viewCat = S.view.startsWith("cat:") ? catOf(S.view.slice(4)).color : "#5e5ce6";
   document.documentElement.style.setProperty("--cat", viewCat);
   document.documentElement.style.setProperty("--tile", `${S.data.settings.tile_size}px`);
@@ -291,16 +295,36 @@ function closeSheet() {
   S.recording = false;
 }
 
+const ACCENTS = [["theme", "Theme default", null], ["brass", "Brass", "#C9A15A"], ["blue", "Blue", "#0A84FF"],
+  ["green", "Green", "#30D158"], ["orange", "Orange", "#FF9F0A"], ["pink", "Pink", "#FF375F"], ["purple", "Purple", "#BF5AF2"]];
+const THEME_ACCENT = { ordel: "#C9A15A", graphite: "#0A84FF", light: "#007AFF", glass: "#0A84FF" };
+const APPEARANCE_DEFAULTS = { theme: "ordel", accent: "theme", picture_fit: "contain", density: "comfortable",
+  corners: "rounded", show_developer: true, tile_size: 200 };
+
 function settingsHtml() {
   const s = S.data.settings;
   const r = S.data.reaper;
   const theme = (key, label) => `<button class="theme-opt" data-theme-opt="${key}" aria-pressed="${s.theme === key}">
     <span class="swatch sw-${key}"><b></b><span><i></i><i></i><i></i><i></i></span></span>${label}</button>`;
+  const choice = (label, hint, key, options) => `<div class="row"><span class="k">${label}<small>${hint}</small></span>
+    <span class="seg" role="radiogroup" aria-label="${label}">${options.map(([value, text]) =>
+      `<button role="radio" data-setting="${key}" data-value="${value}" aria-selected="${s[key] === value}" aria-checked="${s[key] === value}">${text}</button>`).join("")}</span></div>`;
   const missing = S.data.plugins.filter((p) => !hasPicture(p)).length;
   return `
     <div class="sheet-head"><h2 id="sheet-title">Settings</h2><button class="icon-btn" data-action="close-sheet" aria-label="Close">${icon("close")}</button></div>
     <div class="sheet-body">
-      <div class="sheet-section"><h3>Appearance</h3><div class="themes">${theme("graphite", "Graphite")}${theme("light", "Light")}${theme("glass", "Glass")}</div></div>
+      <div class="sheet-section"><h3>Appearance</h3>
+        <div class="themes">${theme("ordel", "Ordel")}${theme("graphite", "Graphite")}${theme("light", "Light")}${theme("glass", "Glass")}</div>
+        <div class="row" style="margin-top:12px"><span class="k">Accent colour<small>Selections, chips and main buttons</small></span>
+          <span class="accents">${ACCENTS.map(([key, label, colour]) => `<button class="accent-opt" data-setting="accent" data-value="${key}" aria-pressed="${s.accent === key}" title="${label}" aria-label="${label} accent" style="background:${key === "theme" ? `linear-gradient(135deg, ${THEME_ACCENT[s.theme]} 50%, var(--surface-2) 50%)` : colour}"></button>`).join("")}</span></div>
+        ${choice("Pictures", "Fit shows the whole plugin; Fill crops to the card", "picture_fit", [["contain", "Fit"], ["cover", "Fill"]])}
+        ${choice("Density", "Compact fits more plugins on screen", "density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}
+        ${choice("Corners", "Softer or sharper edges throughout", "corners", [["rounded", "Rounded"], ["square", "Square"]])}
+        <div class="row"><label class="k" for="show-developer">Developer names<small>Show who makes each plugin under its name</small></label>
+          <input type="checkbox" class="switch" id="show-developer" ${s.show_developer ? "checked" : ""}></div>
+        <div class="row"><span class="k">Reset appearance<small>Back to the Ordel theme and default layout</small></span>
+          <button class="btn quiet" data-action="reset-appearance">Reset</button></div>
+      </div>
       <div class="sheet-section">
         <div class="row"><span class="k">Show Ordel<small>Works from any app, including REAPER</small></span>
           <span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><button class="keycap" id="hotkey" data-autofocus>${esc(s.hotkey)}</button><span class="hint-error" id="hotkey-error" ${S.data.hotkey_ok ? "hidden" : ""}>Shortcut unavailable. Another app is using it.</span></span></div>
@@ -487,11 +511,12 @@ const actions = {
     if (!S.data.settings.toured) startTour();
   },
   "replay-tour": () => { closeSheet(); startTour(); },
+  "reset-appearance": () => saveSettings(APPEARANCE_DEFAULTS).then(refreshSheet),
   quit: () => api("/api/window", { action: "quit" }),
 };
 
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-action],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
+  const t = e.target.closest("[data-action],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
   if (t.dataset.view) return setView(t.dataset.view);
@@ -500,6 +525,7 @@ document.addEventListener("click", (e) => {
   if (t.dataset.capture) return api("/api/capture", { action: t.dataset.capture }).then(load);
   if (t.dataset.window) return api("/api/window", { action: t.dataset.window });
   if (t.dataset.themeOpt) return saveSettings({ theme: t.dataset.themeOpt }).then(refreshSheet);
+  if (t.dataset.setting) return saveSettings({ [t.dataset.setting]: t.dataset.value }).then(refreshSheet);
   if (t.classList.contains("card")) return select(t.dataset.id);
   if (t.id === "reaper-status" || t.id === "open-settings") return showSheet("settings");
   if (t.id === "hotkey") {
@@ -517,6 +543,7 @@ document.addEventListener("dblclick", (e) => {
 document.addEventListener("change", (e) => {
   if (e.target.id === "category-select") updatePlugin(S.selected, { category: e.target.value });
   if (e.target.id === "hide-after-add") saveSettings({ hide_after_add: e.target.checked });
+  if (e.target.id === "show-developer") saveSettings({ show_developer: e.target.checked });
 });
 
 $("#search").addEventListener("input", (e) => { S.query = e.target.value; render(); });

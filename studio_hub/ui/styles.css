@@ -13,6 +13,25 @@
   --cat: #0A84FF;
 }
 
+[data-theme="ordel"] {
+  color-scheme: dark;
+  --bg: #14171f;
+  --sidebar: #10131a;
+  --surface: #1b1f29;
+  --surface-2: #252a36;
+  --hover: rgba(236, 230, 216, .05);
+  --selected: rgba(236, 230, 216, .09);
+  --border: rgba(236, 230, 216, .08);
+  --text: #ece6d8;
+  --text-2: #a39d90;
+  --text-3: #6e6a61;
+  --accent: #c9a15a;
+  --accent-text: #14171f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 8px 24px rgba(0, 0, 0, .32);
+  --art-bg: #1b1f29;
+  --tag-mix: 92%;
+}
+
 [data-theme="graphite"] {
   color-scheme: dark;
   --bg: #1e1e20;
@@ -69,6 +88,15 @@
   --art-bg: rgba(0, 0, 0, .25);
   --tag-mix: 100%;
 }
+
+/* Personalisation: an accent chosen in Settings overrides the theme's own. */
+body[data-accent="brass"] { --accent: #c9a15a; --accent-text: #14171f; }
+body[data-accent="blue"] { --accent: #0a84ff; --accent-text: #fff; }
+body[data-accent="green"] { --accent: #30d158; --accent-text: #0b2a14; }
+body[data-accent="orange"] { --accent: #ff9f0a; --accent-text: #2a1800; }
+body[data-accent="pink"] { --accent: #ff375f; --accent-text: #fff; }
+body[data-accent="purple"] { --accent: #bf5af2; --accent-text: #fff; }
+body[data-corners="square"] { --r-sm: 2px; --r-md: 3px; --r-lg: 4px; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -295,6 +323,11 @@ h1 {
   filter: blur(22px) saturate(1.4) brightness(.8);
 }
 .art .fg { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.35)); }
+body[data-fit="cover"] .art .fg { inset: 0; width: 100%; height: 100%; object-fit: cover; filter: none; }
+body[data-density="compact"] .grid { gap: 12px 10px; }
+body[data-density="compact"] .meta { padding-top: 4px; }
+body[data-density="compact"] .name { font-size: 12px; }
+body[data-developer="off"] .sub .vendor { display: none; }
 .card[aria-selected="true"] .art { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent), var(--shadow); }
 [data-theme="glass"] .card[aria-selected="true"] .art { box-shadow: 0 0 0 2px #121218, 0 0 0 4px var(--accent), var(--shadow); }
 .card:hover .art .fg { filter: drop-shadow(0 4px 12px rgba(0,0,0,.35)) brightness(1.06); }
@@ -410,7 +443,7 @@ select option { background: var(--surface); color: var(--text); }
 .sheet-body { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 24px; }
 .sheet-section h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-2); }
 .sheet-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 0 24px 24px; }
-.themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .theme-opt { display: flex; flex-direction: column; gap: 8px; align-items: center; font-size: 12px; color: var(--text-2); }
 .theme-opt .swatch {
   width: 100%; aspect-ratio: 16 / 10; border-radius: var(--r-md);
@@ -418,10 +451,18 @@ select option { background: var(--surface); color: var(--text); }
   display: flex; overflow: hidden;
 }
 .theme-opt .swatch b { width: 30%; }
+.accents { display: flex; gap: 6px; flex: none; }
+.accent-opt {
+  width: 22px; height: 22px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .2);
+}
+.accent-opt[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--sidebar), 0 0 0 4px var(--text); }
+.sheet .seg { margin: 0; min-width: 200px; }
 .theme-opt .swatch span { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 8px; align-content: start; }
 .theme-opt .swatch span i { aspect-ratio: 16 / 10; border-radius: 3px; }
 .theme-opt[aria-pressed="true"] { color: var(--text); }
 .theme-opt[aria-pressed="true"] .swatch { box-shadow: 0 0 0 2px var(--accent); }
+.sw-ordel { background: #14171f; } .sw-ordel b { background: #10131a; } .sw-ordel i { background: #ece6d8; } .sw-ordel i:nth-child(4) { background: #c9a15a; }
 .sw-graphite { background: #1e1e20; } .sw-graphite b { background: #18181a; } .sw-graphite i { background: #2f2f33; }
 .sw-light { background: #fff; } .sw-light b { background: #f3f3f5; } .sw-light i { background: #e5e5ea; }
 .sw-glass { background: radial-gradient(90% 90% at 10% 0%, #3b2f66, #121218 70%); } .sw-glass b { background: rgba(255,255,255,.06); } .sw-glass i { background: rgba(255,255,255,.12); }

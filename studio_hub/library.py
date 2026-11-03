@@ -10,7 +10,7 @@ from .categories import KEYS, resolve_category
 from .reaper_db import Plugin, tidy_developer
 
 DEFAULT_SETTINGS = {
-    "theme": "graphite",
+    "theme": "ordel",
     "hotkey": "Ctrl+Shift+Space",
     "hide_after_add": False,
     "tile_size": 200,
@@ -19,17 +19,27 @@ DEFAULT_SETTINGS = {
     "onboarded": False,
     "sidebar_mode": "categories",
     "toured": False,
+    "accent": "theme",
+    "picture_fit": "contain",
+    "density": "comfortable",
+    "corners": "rounded",
+    "show_developer": True,
 }
 CAPTURE_STATES = {"none", "ok", "failed", "custom", "crashed"}
-THEMES = {"graphite", "light", "glass"}
+CHOICES = {
+    "theme": {"ordel", "graphite", "light", "glass"},
+    "sidebar_mode": {"categories", "developers"},
+    "accent": {"theme", "brass", "blue", "green", "orange", "pink", "purple"},
+    "picture_fit": {"contain", "cover"},
+    "density": {"comfortable", "compact"},
+    "corners": {"rounded", "square"},
+}
 
 
 def _valid_setting(key: str, value) -> bool:
     """Settings arrive from the UI and from disk, so check each one's type before keeping it."""
-    if key == "theme":
-        return value in THEMES
-    if key == "sidebar_mode":
-        return value in ("categories", "developers")
+    if key in CHOICES:
+        return value in CHOICES[key]
     if key == "window":
         return value is None or (isinstance(value, dict) and all(
             isinstance(v, int) and not isinstance(v, bool) for v in value.values()))
