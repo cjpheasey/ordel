@@ -2,6 +2,7 @@
 import ctypes
 import json
 import logging
+import sys
 import threading
 import urllib.request
 
@@ -15,6 +16,7 @@ from PIL import Image
 from .api import Api
 from .bridge import ReaperBridge
 from .capture import CaptureRunner
+from .helper import HelperCapture
 from .hotkey import HotkeyListener
 from .library import Library
 from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
@@ -56,7 +58,8 @@ class App:
     def __init__(self):
         self.library = Library(data_dir() / "library.json")
         self.bridge = ReaperBridge(bridge_dir())
-        self.capture = CaptureRunner(self.bridge, self.library, snapshots_dir(), lambda: self.api.plugins)
+        self.capture = CaptureRunner(self.bridge, self.library, snapshots_dir(), lambda: self.api.plugins,
+                                     helper=HelperCapture(reaper_dir()))
         self.api = Api(reaper_dir(), self.library, self.bridge, self.capture, {
             "show": self.show, "hide": self.hide, "minimize": self.minimize, "quit": self.quit,
             "pick_image": self.pick_image, "set_hotkey": self.set_hotkey,
@@ -159,6 +162,10 @@ class App:
 
 
 def main() -> None:
+    if len(sys.argv) > 2 and sys.argv[1] == "--capture-helper":  # Studio Hub started as its own capture helper
+        from . import helper
+        helper.run(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+        return
     logging.basicConfig(filename=data_dir() / "studio_hub.log", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if _already_running():

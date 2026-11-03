@@ -60,3 +60,27 @@ def test_malformed_lines_and_bom_are_tolerated(tmp_path):
     (tmp_path / "reaper-fxtags.ini").write_text("garbage before any section\n[category]\nreacomp.dll=Dynamics\n")
     ps = load_plugins(tmp_path)
     assert [p.name for p in ps] == ["ReaComp"]
+
+
+def test_plugin_keeps_reaper_file_key():
+    ps = by_name(load_plugins(FIX))
+    assert ps["AmpliTube 5"].key == "AmpliTube_5.vst3"
+    assert ps["IR-L Mono"].key == "WaveShell1_VST3_14.12_x64.vst3<1588611046"
+
+
+def test_find_vst3_matches_reaper_key_in_subfolders(tmp_path):
+    from studio_hub.reaper_db import find_vst3
+    (tmp_path / "VST3" / "FabFilter" / "FabFilter Micro.vst3").mkdir(parents=True)  # bundle folder
+    (tmp_path / "VST3" / "WaveShell1-VST3 14.12_x64.vst3").write_bytes(b"")          # single file
+    roots = [tmp_path / "VST3", tmp_path / "missing"]
+    assert find_vst3("FabFilter_Micro.vst3", roots) == tmp_path / "VST3" / "FabFilter" / "FabFilter Micro.vst3"
+    assert find_vst3("WaveShell1_VST3_14.12_x64.vst3<1588611046", roots) == tmp_path / "VST3" / "WaveShell1-VST3 14.12_x64.vst3"
+    assert find_vst3("Nope.vst3", roots) is None
+
+
+def test_vst3_roots_read_from_reaper_ini(tmp_path, monkeypatch):
+    from studio_hub.reaper_db import vst3_roots
+    monkeypatch.setenv("COMMONPROGRAMFILES", str(tmp_path / "Common"))
+    (tmp_path / "reaper.ini").write_text(r"[reaper]" "\n" r"vstpath64=%COMMONPROGRAMFILES%\VST3;D:\Plugins" "\n")
+    roots = vst3_roots(tmp_path)
+    assert tmp_path / "Common" / "VST3" in roots and Path("D:/Plugins") in roots

@@ -2,6 +2,7 @@
 import configparser
 import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,43 @@ class Plugin:
     add_name: str
     reaper_tags: list[str] = field(default_factory=list)
     alternates: list[str] = field(default_factory=list)
+    key: str = ""  # REAPER's cache key, e.g. 'FabFilter_Micro.vst3' or 'WaveShell1_VST3_14.12_x64.vst3<1588611046'
+
+
+def _norm_file(name: str) -> str:
+    """REAPER's cache keys replace spaces and dashes with underscores."""
+    return re.sub(r"[^a-z0-9.]", "_", name.lower())
+
+
+def vst3_roots(reaper_dir: Path) -> list[Path]:
+    """Folders to look for VST3 files in: the standard one plus REAPER's own plug-in paths."""
+    paths = [os.path.expandvars(r"%COMMONPROGRAMFILES%\VST3")]
+    ini = _read_ini(Path(reaper_dir) / "reaper.ini")
+    section = next((s for s in ini.sections() if s.lower() == "reaper"), None)  # REAPER writes '[reaper]'
+    if section and ini.has_option(section, "vstpath64"):
+        paths += [p.strip() for p in (ini.get(section, "vstpath64") or "").split(";") if p.strip()]
+    out: list[Path] = []
+    for p in paths:
+        path = Path(os.path.expandvars(p))
+        if path not in out:
+            out.append(path)
+    return out
+
+
+def vst3_index(roots: list[Path]) -> dict[str, Path]:
+    """Normalised file name -> path of every .vst3 (file or bundle folder) under the roots."""
+    index: dict[str, Path] = {}
+    for root in roots:
+        for folder, dirs, files in os.walk(root):
+            for name in dirs + files:
+                if name.lower().endswith(".vst3"):
+                    index.setdefault(_norm_file(name), Path(folder) / name)
+            dirs[:] = [d for d in dirs if not d.lower().endswith(".vst3")]  # don't descend into bundles
+    return index
+
+
+def find_vst3(key: str, roots: list[Path], index: dict[str, Path] | None = None) -> Path | None:
+    return (index if index is not None else vst3_index(roots)).get(_norm_file(key.split("<", 1)[0]))
 
 
 def _read_ini(path: Path) -> configparser.RawConfigParser:
@@ -83,7 +121,7 @@ def load_plugins(reaper_dir: Path) -> list[Plugin]:
         add_name = f"{fmt}{'i' if instrument else ''}: {display}"
         uid = hashlib.sha1(f"{name}|{vendor}".lower().encode()).hexdigest()[:12]
         plugin = Plugin(uid, name, vendor, fmt, instrument, add_name,
-                        [t for t in (categories.get(key) or "").split("|") if t])
+                        [t for t in (categories.get(key) or "").split("|") if t], key=key)
         dedupe = (name.lower(), vendor.lower())
         current = best.get(dedupe)
         if current is None:

@@ -17,7 +17,7 @@ def wait_done(runner, timeout=10):
     assert not runner.status()["running"]
 
 
-def make(tmp_path, grab_fails=(), fake=True, die_on=None):
+def make(tmp_path, grab_fails=(), fake=True, die_on=None, helper=None):
     plugins = load_plugins(FIX)
     lib = Library(tmp_path / "lib.json")
     reaper = FakeReaper(tmp_path / "bridge", die_on=die_on) if fake else None
@@ -31,7 +31,7 @@ def make(tmp_path, grab_fails=(), fake=True, die_on=None):
         return True
 
     runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins,
-                           find_window=lambda name, timeout=8.0: name, grab=grab)
+                           find_window=lambda name, timeout=8.0: name, grab=grab, helper=helper)
     return runner, lib, plugins, reaper, grabbed
 
 
@@ -82,7 +82,8 @@ def test_cancel_ends_session(tmp_path):
         time.sleep(0.2)
         runner.cancel()
         wait_done(runner)
-        assert reaper.received[-1][0] == "CAPTURE_END" and len(grabbed) < len(plugins)
+        verbs = [v for v, _ in reaper.received]
+        assert ("CAPTURE_BEGIN" not in verbs or verbs[-1] == "CAPTURE_END") and len(grabbed) < len(plugins)
     finally:
         reaper.stop()
 
@@ -99,7 +100,8 @@ def test_stop_waits_for_capture_end(tmp_path):
     try:
         runner.start()
         runner.stop(timeout=5)
-        assert not runner.status()["running"] and reaper.received[-1][0] == "CAPTURE_END"
+        verbs = [v for v, _ in reaper.received]
+        assert not runner.status()["running"] and ("CAPTURE_BEGIN" not in verbs or verbs[-1] == "CAPTURE_END")
     finally:
         reaper.stop()
 
@@ -192,5 +194,81 @@ def test_brief_heartbeat_gap_is_not_a_crash(tmp_path, monkeypatch):
         runner.start()
         wait_done(runner, timeout=15)
         assert lib.capture_status(plugins[0].id) == "failed" and runner.status()["crashed"] is None
+    finally:
+        reaper.stop()
+
+
+def fake_helper(outcomes: dict[str, str], seen: list):
+    """Stands in for the helper process: VST3 plugins get the outcome named for them (default 'ok')."""
+    def helper(plugin, out):
+        if plugin.format != "VST3":
+            return None
+        seen.append(plugin.name)
+        result = outcomes.get(plugin.name, "ok")
+        if result == "ok":
+            out.write_bytes(b"png")
+        return result
+    return helper
+
+
+def reaper_opened(reaper):
+    return [arg for verb, arg in reaper.received if verb == "CAPTURE_OPEN"]
+
+
+def test_vst3_plugins_go_to_the_helper_not_reaper(tmp_path):
+    seen = []
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper({}, seen))
+    try:
+        runner.start()
+        wait_done(runner)
+        assert sorted(seen) == sorted(p.name for p in plugins if p.format == "VST3")
+        assert not any(a.startswith("VST3") for a in reaper_opened(reaper))
+        assert "VST: ReaComp (Cockos)" in reaper_opened(reaper)
+        assert all(v["capture"] == "ok" for v in lib.view(plugins))
+    finally:
+        reaper.stop()
+
+
+def test_plugin_the_helper_cant_load_falls_back_to_reaper(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper({"Vital": "unsupported"}, []))
+    try:
+        runner.start()
+        wait_done(runner)
+        assert "VST3i: Vital (Vital Audio)" in reaper_opened(reaper)
+        assert {v["name"]: v["capture"] for v in lib.view(plugins)}["Vital"] == "ok"
+    finally:
+        reaper.stop()
+
+
+def test_crash_or_hang_in_helper_is_skipped_without_touching_reaper(tmp_path):
+    outcomes = {"Vital": "crashed", "AmpliTube 5": "hung"}
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper(outcomes, []))
+    try:
+        runner.start()
+        wait_done(runner)
+        states = {v["name"]: v["capture"] for v in lib.view(plugins)}
+        assert states["Vital"] == "crashed" and states["AmpliTube 5"] == "crashed" and states["ReaComp"] == "ok"
+        assert not any("Vital" in a or "AmpliTube" in a for a in reaper_opened(reaper))
+        assert runner.status()["error"] is None
+    finally:
+        reaper.stop()
+
+
+def test_without_reaper_helper_plugins_are_still_captured(tmp_path):
+    runner, lib, plugins, _, _ = make(tmp_path, fake=False, helper=fake_helper({}, []))
+    runner.start()
+    wait_done(runner)
+    states = {v["name"]: (v["capture"], v["format"]) for v in lib.view(plugins)}
+    assert all(c == "ok" for c, f in states.values() if f == "VST3")
+    assert all(c == "none" for c, f in states.values() if f != "VST3")  # left for when REAPER is open
+    assert runner.status()["needs_reaper"] == sum(f != "VST3" for _, f in states.values())
+
+
+def test_reaper_session_only_opens_when_a_plugin_needs_it(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper({}, []))
+    try:
+        runner.start([p.id for p in plugins if p.format == "VST3"])
+        wait_done(runner)
+        assert reaper.received == []
     finally:
         reaper.stop()

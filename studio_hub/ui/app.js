@@ -59,10 +59,10 @@ function initials(name) {
   return (words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2)).toUpperCase();
 }
 
-const CAPTION = { failed: "Couldn't capture", crashed: "Crashed REAPER" };
+const CAPTION = { failed: "Couldn't capture", crashed: "Crashed when opened" };
 const DETAIL_CAPTION = {
   failed: "Couldn't capture this plugin",
-  crashed: "This plugin closed REAPER while being captured, so it's skipped. Retake to try again.",
+  crashed: "This plugin crashed or froze when it was opened, so it's skipped. Retake to try again.",
 };
 
 const shotUrl = (p) => `/snapshots/${p.id}.png?v=${p.shot || 0}`;
@@ -344,6 +344,7 @@ async function load() {
   const cap = S.data.capture;
   if (S.wasCapturing && !cap.running) {
     if (cap.crashed) toast(`REAPER closed while opening ${cap.crashed}. It will be skipped next time.`, true);
+    else if (cap.needs_reaper) toast(`${plural(cap.needs_reaper, "plugin")} need REAPER open to capture. Open REAPER and capture again.`, true);
     else if (cap.error === "not_connected") toast("Capture stopped: REAPER disconnected", true);
     else if (cap.error === "BUSY") toast("Stop playback in REAPER, then capture again", true);
     else toast(cap.failed ? `Pictures updated. ${plural(cap.failed, "plugin")} couldn't be captured` : "Pictures updated", cap.failed > 0);

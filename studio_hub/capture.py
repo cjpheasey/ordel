@@ -67,6 +67,15 @@ def _editor_rect(hwnd: int) -> tuple[int, int, int, int]:
     return plugin_area((x, y, x + right - left, y + bottom - top), controls)
 
 
+def client_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """Screen rect of the window's contents, without its title bar (used for the helper's editor window)."""
+    import win32gui
+
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+    x, y = win32gui.ClientToScreen(hwnd, (left, top))
+    return x, y, x + right - left, y + bottom - top
+
+
 def plugin_area(client: tuple, controls: list[tuple]) -> tuple:
     """Crop off REAPER's preset/parameter strip: the short controls hugging the top of the client area."""
     left, top, right, bottom = client
@@ -110,7 +119,7 @@ def _looks_blank(img: Image.Image) -> bool:
     return bool(colors) and max(c for c, _ in colors) / (64 * 48) >= 0.98
 
 
-def grab_window(hwnd: int, out: Path) -> bool:
+def grab_window(hwnd: int, out: Path, area: Callable[[int], tuple] = _editor_rect) -> bool:
     import ctypes
 
     import win32con
@@ -131,9 +140,9 @@ def grab_window(hwnd: int, out: Path) -> bool:
         previous = img
         time.sleep(0.3)
     win_left, win_top, _, _ = win32gui.GetWindowRect(hwnd)
-    left, top, right, bottom = _editor_rect(hwnd)
+    left, top, right, bottom = area(hwnd)
     printed = img.crop((left - win_left, top - win_top, right - win_left, bottom - win_top)) if img else None
-    img = pick_image(printed, lambda: _screen_grab(hwnd))
+    img = pick_image(printed, lambda: _screen_grab(hwnd, area))
     if img is None:
         return False
     img.save(out)
@@ -152,7 +161,7 @@ def pick_image(printed: Image.Image | None, screen_grab: Callable[[], Image.Imag
     return shot if _usable(shot) else None
 
 
-def _screen_grab(hwnd: int) -> Image.Image | None:
+def _screen_grab(hwnd: int, area: Callable[[int], tuple] = _editor_rect) -> Image.Image | None:
     import mss
     import win32con
     import win32gui
@@ -161,7 +170,7 @@ def _screen_grab(hwnd: int) -> Image.Image | None:
     win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, keep)  # nothing may cover it
     try:
         time.sleep(0.4)
-        left, top, right, bottom = _editor_rect(hwnd)
+        left, top, right, bottom = area(hwnd)
         with mss.MSS() as screen:
             shot = screen.grab({"left": left, "top": top, "width": right - left, "height": bottom - top})
         return Image.frombytes("RGB", shot.size, shot.rgb)
@@ -174,19 +183,21 @@ def _screen_grab(hwnd: int) -> Image.Image | None:
 
 class CaptureRunner:
     def __init__(self, bridge, library, snapshots_dir: Path, plugins_fn: Callable,
-                 find_window=find_plugin_window, grab=grab_window):
+                 find_window=find_plugin_window, grab=grab_window, helper=None):
         self.bridge = bridge
         self.library = library
         self.snapshots_dir = Path(snapshots_dir)
         self.plugins_fn = plugins_fn
         self.find_window = find_window
         self.grab = grab
+        # helper(plugin, out) -> 'ok' | 'failed' | 'unsupported' | 'crashed' | 'hung', or None if it can't take it
+        self.helper = helper
         self._thread: threading.Thread | None = None
         self._resume = threading.Event()
         self._resume.set()
         self._cancel = threading.Event()
         self._status = {"running": False, "paused": False, "done": 0, "total": 0,
-                        "current": None, "failed": 0, "error": None, "crashed": None}
+                        "current": None, "failed": 0, "error": None, "crashed": None, "needs_reaper": 0}
         self.open_timeout = 20.0
         self.crash_grace = 10.0  # REAPER can go quiet for seconds while a heavy plugin loads
 
@@ -206,7 +217,7 @@ class CaptureRunner:
             todo = [p for p in plugins if p.id in wanted]
         self._cancel.clear()
         self._status.update(running=True, done=0, total=len(todo), current=None, failed=0, error=None,
-                            crashed=None)
+                            crashed=None, needs_reaper=0)
         self._thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
         self._thread.start()
 
@@ -228,31 +239,48 @@ class CaptureRunner:
 
     def _run(self, todo) -> None:
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        session = None  # REAPER's capture tab opens only once a plugin actually needs REAPER
         try:
-            ok, detail = self.bridge.send("CAPTURE_BEGIN")
-            if not ok:
-                self._status["error"] = detail
-                return
             for plugin in todo:
                 self._resume.wait()
                 if self._cancel.is_set():
                     break
                 self._status["current"] = plugin.name
-                result = self._capture_one(plugin)
-                if result != "ok" and self._reaper_gone():
-                    result = "crashed"  # REAPER went down while this plugin was open
+                result = self._via_helper(plugin)
+                if result is None:
+                    if session is None:
+                        ok, detail = self.bridge.send("CAPTURE_BEGIN")
+                        session = ok
+                        if not ok:
+                            self._status["error"] = detail
+                    if not session:
+                        self._status["needs_reaper"] += 1  # left as is, to capture once REAPER is open
+                        self._status["done"] += 1
+                        continue
+                    result = self._capture_one(plugin)
+                    if result != "ok" and self._reaper_gone():
+                        result = "crashed"  # REAPER went down while this plugin was open
+                        session = False
+                        self._status.update(error="not_connected", crashed=plugin.name)
                 self.library.set_capture(plugin.id, result)
                 self._status["done"] += 1
                 self._status["failed"] += result != "ok"
-                if result == "crashed":
-                    self._status.update(error="not_connected", crashed=plugin.name)
-                    break
-            self.bridge.send("CAPTURE_END")
+            if session:
+                self.bridge.send("CAPTURE_END")
         except Exception as e:  # a capture problem must never take the app down
             log.exception("capture run failed")
             self._status["error"] = str(e)
         finally:
             self._status.update(running=False, current=None)
+
+    def _via_helper(self, plugin) -> str | None:
+        """'ok', 'failed' or 'crashed' when the helper handled it; None means REAPER should try it."""
+        if self.helper is None:
+            return None
+        result = self.helper(plugin, self.snapshots_dir / f"{plugin.id}.png")
+        if result in ("crashed", "hung"):
+            return "crashed"  # it would likely take REAPER down too, so don't try it there
+        return result if result in ("ok", "failed") else None
 
     def _reaper_gone(self) -> bool:
         deadline = time.monotonic() + self.crash_grace
