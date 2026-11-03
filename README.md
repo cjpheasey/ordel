@@ -11,6 +11,7 @@ Built for mixing sessions where you remember a plugin by its face, not its name.
 - **See every plugin.** Mise opens each plugin once and photographs its real interface. No web scraping, no stock images.
 - **Crash-safe capture.** VST3 plugins open in a throwaway helper process, so a plugin that crashes or freezes can't take REAPER down. It's marked and skipped.
 - **Sorted for you.** Plugins are grouped into EQ, Dynamics, Reverb, Delay, Saturation and more, using the categories developers declare to REAPER. Drag a plugin onto another category to correct it.
+- **Browse by developer.** Switch the sidebar to Developers to see everything from Waves, FabFilter or Plugin Alliance, then narrow with one click: Waves EQs, or every developer's reverbs.
 - **One shortcut away.** Press **Ctrl+Shift+Space** from anywhere, including REAPER, to show or hide Mise.
 - **Straight to the track.** Double-click a plugin, or press Enter, and it's added to the selected REAPER track with its window open.
 - **Three themes.** Graphite, Light and Glass, each with colour-coded categories.

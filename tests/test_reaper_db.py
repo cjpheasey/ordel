@@ -84,3 +84,13 @@ def test_vst3_roots_read_from_reaper_ini(tmp_path, monkeypatch):
     (tmp_path / "reaper.ini").write_text(r"[reaper]" "\n" r"vstpath64=%COMMONPROGRAMFILES%\VST3;D:\Plugins" "\n")
     roots = vst3_roots(tmp_path)
     assert tmp_path / "Common" / "VST3" in roots and Path("D:/Plugins") in roots
+
+
+def test_developer_names_are_tidied_for_display():
+    from studio_hub.reaper_db import tidy_developer
+    assert tidy_developer("Valhalla DSP, LLC") == "Valhalla DSP"
+    assert tidy_developer("Universal Audio (UADx)") == "Universal Audio"
+    assert tidy_developer("iZotope, Inc.") == "iZotope"
+    assert tidy_developer("Native Instruments GmbH") == "Native Instruments"
+    assert tidy_developer("Plugin Alliance") == "Plugin Alliance"
+    assert tidy_developer("") == ""

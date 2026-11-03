@@ -88,3 +88,17 @@ def test_update_settings_rejects_wrong_types(tmp_path):
     assert lib.settings["theme"] == "graphite" and lib.settings["tile_size"] == 260
     lib.update_settings(window={"x": 1, "y": 2, "width": 900, "height": 600})
     assert lib.settings["window"]["width"] == 900
+
+
+def test_view_includes_tidy_developer_name(tmp_path):
+    p = Plugin("abc123abc123", "Shimmer", "Valhalla DSP, LLC", "VST3", False, "VST3: Shimmer (Valhalla DSP, LLC)")
+    item = Library(tmp_path / "l.json").view([p])[0]
+    assert item["developer"] == "Valhalla DSP" and item["vendor"] == "Valhalla DSP, LLC"
+
+
+def test_sidebar_mode_setting(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    assert lib.settings["sidebar_mode"] == "categories"
+    lib.update_settings(sidebar_mode="developers")
+    lib.update_settings(sidebar_mode="nonsense")
+    assert Library(tmp_path / "l.json").settings["sidebar_mode"] == "developers"

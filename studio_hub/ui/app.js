@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const S = { data: null, view: "all", query: "", selected: null, gridSig: "", wasCapturing: false, recording: false };
+const S = { data: null, view: "all", chip: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -27,19 +27,48 @@ const catOf = (key) => cats().find((c) => c.key === key) || cats()[cats().length
 const pluginById = (id) => S.data.plugins.find((p) => p.id === id);
 const hasPicture = (p) => p.capture === "ok" || p.capture === "custom";
 
+const devOf = (p) => p.developer || "Unknown developer";
+
 function inView(p, view) {
   if (view === "all") return true;
   if (view === "favourites") return p.favourite;
   if (view === "recent") return p.last_used > 0;
+  if (view.startsWith("dev:")) return devOf(p) === view.slice(4);
   return p.category === view.slice(4);
+}
+
+// In a developer, chips narrow by category; in a category, by developer.
+function chipMatches(p) {
+  if (!S.chip) return true;
+  return S.view.startsWith("dev:") ? p.category === S.chip : devOf(p) === S.chip;
+}
+
+function chipOptions() {
+  if (!S.view.startsWith("dev:") && !S.view.startsWith("cat:")) return [];
+  const byDev = S.view.startsWith("dev:");
+  const counts = new Map();
+  for (const p of S.data.plugins.filter((x) => inView(x, S.view))) {
+    const key = byDev ? p.category : devOf(p);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const options = [...counts].map(([key, n]) => ({ key, n, label: byDev ? catOf(key).label : key }));
+  return byDev
+    ? options.sort((a, b) => cats().findIndex((c) => c.key === a.key) - cats().findIndex((c) => c.key === b.key))
+    : options.sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+}
+
+function developers() {
+  const counts = new Map();
+  for (const p of S.data.plugins) counts.set(devOf(p), (counts.get(devOf(p)) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
 function visiblePlugins() {
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
-  let list = S.data.plugins.filter((p) => inView(p, S.view));
+  let list = S.data.plugins.filter((p) => inView(p, S.view) && chipMatches(p));
   if (words.length) {
     list = list.filter((p) => {
-      const hay = `${p.name} ${p.vendor} ${catOf(p.category).label}`.toLowerCase();
+      const hay = `${p.name} ${devOf(p)} ${catOf(p.category).label}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
   }
@@ -51,6 +80,7 @@ function viewTitle() {
   if (S.view === "all") return "All plugins";
   if (S.view === "favourites") return "Favourites";
   if (S.view === "recent") return "Recently used";
+  if (S.view.startsWith("dev:")) return S.view.slice(4);
   return catOf(S.view.slice(4)).label;
 }
 
@@ -93,12 +123,16 @@ function renderSidebar() {
     navItem("all", "All plugins", ps.length, icon("grid")) +
     navItem("favourites", "Favourites", ps.filter((p) => p.favourite).length, icon("star")) +
     navItem("recent", "Recently used", Math.min(30, ps.filter((p) => p.last_used > 0).length), icon("clock")));
-  setHtml($("#nav-categories"), cats()
-    .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
-    .filter(({ c, n }) => n > 0 || S.view === `cat:${c.key}`)
-    .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
-      `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`))
-    .join(""));
+  const mode = S.data.settings.sidebar_mode;
+  document.querySelectorAll("#nav-switch [data-mode]").forEach((b) => b.setAttribute("aria-selected", b.dataset.mode === mode));
+  setHtml($("#nav-categories"), mode === "developers"
+    ? developers().map(([name, n]) => navItem(`dev:${name}`, name, n, `<span class="initial">${esc(name[0].toUpperCase())}</span>`)).join("")
+    : cats()
+      .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
+      .filter(({ c, n }) => n > 0 || S.view === `cat:${c.key}`)
+      .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
+        `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`))
+      .join(""));
 
   const r = S.data.reaper;
   setHtml($("#reaper-status"), `<span class="dot${r.connected ? " on" : ""}"></span>${r.connected ? "REAPER connected" : "REAPER not connected"}`);
@@ -107,9 +141,23 @@ function renderSidebar() {
 
 function renderToolbar() {
   const n = visiblePlugins().length;
+  const total = S.data.plugins.filter((p) => inView(p, S.view)).length;
   $("#view-title").textContent = viewTitle();
-  $("#view-count").textContent = plural(n, "plugin");
+  $("#view-count").textContent = S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
+  renderChips(total);
   $("#tile-size").value = S.data.settings.tile_size;
+}
+
+function renderChips(total) {
+  const options = chipOptions();
+  const el = $("#chips");
+  el.hidden = options.length < 2;  // nothing to narrow down to
+  if (el.hidden) return;
+  const byDev = S.view.startsWith("dev:");
+  const chip = (key, label, n, lead = "") =>
+    `<button class="chip" data-chip="${esc(key)}" aria-pressed="${(S.chip || "") === key}">${lead}${esc(label)} <b>${n}</b></button>`;
+  setHtml(el, chip("", "All", total) + options.map((o) =>
+    chip(o.key, o.label, o.n, byDev ? `<span class="tag" style="--c:${catOf(o.key).color}"></span>` : "")).join(""));
 }
 
 function renderBanners() {
@@ -173,13 +221,13 @@ function cardHtml(p) {
   return `<li><button class="card" data-id="${p.id}" aria-selected="${sel}" draggable="true" title="${esc(p.name)}">
     <div class="art" style="--c:${c.color}">${art}${p.favourite ? `<span class="fav">${icon("star")}</span>` : ""}</div>
     <div class="meta"><span class="name">${esc(p.name)}</span>
-      <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(p.vendor || "Unknown maker")}</span>${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
+      <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(devOf(p))}</span>${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
     </div></button></li>`;
 }
 
 function renderGrid() {
   const list = visiblePlugins();
-  const sig = S.view + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}`).join(",");
+  const sig = S.view + "|" + S.chip + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}`).join(",");
   if (sig !== S.gridSig) {
     const focused = document.activeElement?.dataset?.id;
     $("#grid").innerHTML = list.map(cardHtml).join("");
@@ -211,7 +259,7 @@ function renderDetail() {
     <div class="detail-head"><button class="icon-btn" data-action="close-detail" aria-label="Close details">${icon("close")}</button></div>
     <div class="detail-body">
       <div class="art" style="--c:${c.color}">${art}</div>
-      <div><h2>${esc(p.name)}</h2><div class="vendor-line">${esc(p.vendor || "Unknown maker")}</div></div>
+      <div><h2>${esc(p.name)}</h2><div class="vendor-line">${esc(devOf(p))}</div></div>
       <div class="actions">
         <button class="btn primary" data-action="send">${icon("plus")}Add to track</button>
         <button class="btn fav-btn" data-action="favourite" aria-pressed="${p.favourite}" aria-label="Favourite" title="Favourite (F)">${icon("star")}</button>
@@ -403,6 +451,7 @@ function select(id, focus = false) {
 
 function setView(view) {
   S.view = view;
+  S.chip = null;
   saveSettings({ last_view: view }).catch(() => {});
   $("#scroller").scrollTop = 0;
   render();
@@ -437,10 +486,12 @@ const actions = {
 };
 
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-action],[data-view],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
+  const t = e.target.closest("[data-action],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
   if (t.dataset.view) return setView(t.dataset.view);
+  if (t.dataset.mode) return saveSettings({ sidebar_mode: t.dataset.mode }).catch(() => {});
+  if (t.dataset.chip !== undefined) { S.chip = t.dataset.chip || null; $("#scroller").scrollTop = 0; return render(); }
   if (t.dataset.capture) return api("/api/capture", { action: t.dataset.capture }).then(load);
   if (t.dataset.window) return api("/api/window", { action: t.dataset.window });
   if (t.dataset.themeOpt) return saveSettings({ theme: t.dataset.themeOpt }).then(refreshSheet);
@@ -567,7 +618,7 @@ document.querySelector('[data-window="hide"]').innerHTML = icon("close");
   await load();
   if (!S.data) return setTimeout(() => location.reload(), 1000);
   S.view = S.data.settings.last_view || "all";
-  if (!S.data.plugins.some((p) => inView(p, S.view)) && S.view.startsWith("cat:")) S.view = "all";
+  if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|dev):/.test(S.view)) S.view = "all";
   render();
   if (!S.data.settings.onboarded) showSheet("welcome");
   setTimeout(poll, 3000);

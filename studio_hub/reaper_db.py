@@ -26,6 +26,15 @@ class Plugin:
     key: str = ""  # REAPER's cache key, e.g. 'FabFilter_Micro.vst3' or 'WaveShell1_VST3_14.12_x64.vst3<1588611046'
 
 
+_COMPANY_SUFFIX = re.compile(r"[,\s]+(llc|inc|ltd|gmbh|co|corp|s\.?a\.?|b\.?v\.?)\.?$", re.IGNORECASE)
+
+
+def tidy_developer(vendor: str) -> str:
+    """Display name for a developer: 'Valhalla DSP, LLC' -> 'Valhalla DSP', 'Universal Audio (UADx)' -> 'Universal Audio'."""
+    name = re.sub(r"\s*\([^()]*\)", "", vendor).strip()
+    return _COMPANY_SUFFIX.sub("", name).strip() or vendor.strip()
+
+
 def _norm_file(name: str) -> str:
     """REAPER's cache keys replace spaces and dashes with underscores."""
     return re.sub(r"[^a-z0-9.]", "_", name.lower())

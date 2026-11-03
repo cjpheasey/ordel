@@ -20,7 +20,10 @@
   <div class="shell">
     <nav class="sidebar" aria-label="Library">
       <div class="nav-group" id="nav-library"></div>
-      <div class="nav-heading">Categories</div>
+      <div class="seg" id="nav-switch" role="tablist" aria-label="Browse by">
+        <button role="tab" data-mode="categories">Categories</button>
+        <button role="tab" data-mode="developers">Developers</button>
+      </div>
       <div class="nav-group" id="nav-categories"></div>
       <div class="sidebar-foot">
         <button class="reaper-status" id="reaper-status"></button>
@@ -45,6 +48,7 @@
           </div>
         </div>
       </div>
+      <div class="chips" id="chips" role="group" aria-label="Narrow down" hidden></div>
       <div class="capture-bar" id="capture-bar" hidden></div>
       <div class="banner" id="banner" hidden></div>
       <div class="scroller" id="scroller">

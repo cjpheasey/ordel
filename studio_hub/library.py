@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from .categories import KEYS, resolve_category
-from .reaper_db import Plugin
+from .reaper_db import Plugin, tidy_developer
 
 DEFAULT_SETTINGS = {
     "theme": "graphite",
@@ -17,6 +17,7 @@ DEFAULT_SETTINGS = {
     "last_view": "all",
     "window": None,
     "onboarded": False,
+    "sidebar_mode": "categories",
 }
 CAPTURE_STATES = {"none", "ok", "failed", "custom", "crashed"}
 THEMES = {"graphite", "light", "glass"}
@@ -26,6 +27,8 @@ def _valid_setting(key: str, value) -> bool:
     """Settings arrive from the UI and from disk, so check each one's type before keeping it."""
     if key == "theme":
         return value in THEMES
+    if key == "sidebar_mode":
+        return value in ("categories", "developers")
     if key == "window":
         return value is None or (isinstance(value, dict) and all(
             isinstance(v, int) and not isinstance(v, bool) for v in value.values()))
@@ -104,7 +107,8 @@ class Library:
                 state = self._plugins.get(p.id, {})
                 auto = resolve_category(p.reaper_tags, p.name, p.instrument)
                 out.append({
-                    "id": p.id, "name": p.name, "vendor": p.vendor, "format": p.format,
+                    "id": p.id, "name": p.name, "vendor": p.vendor, "developer": tidy_developer(p.vendor),
+                    "format": p.format,
                     "instrument": p.instrument, "alternates": p.alternates,
                     "category": state.get("category") or auto, "category_auto": auto,
                     "favourite": state.get("favourite", False),
