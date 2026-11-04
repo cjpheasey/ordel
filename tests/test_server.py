@@ -268,3 +268,44 @@ def test_connecting_starts_the_script_in_the_running_reaper_wherever_it_lives(en
     launched.clear()
     api.install_bridge()  # REAPER closed: it picks the script up when it next starts; never open REAPER
     assert launched == []
+
+
+def test_recapture_all_leaves_your_own_images_alone(env):
+    _, api, *_ = env
+    mine = api.plugins[0]
+    api.library.set_capture(mine.id, "custom")
+    api.capture_action("recapture_all")
+    started = api.capture.calls[-1][1]
+    assert mine.id not in started and len(started) == len(api.plugins) - 1
+
+
+def test_other_websites_cant_probe_the_local_server(env):
+    base, *_ = env
+
+    def get_from(site):
+        req = urllib.request.Request(base + "/api/state", headers={"Sec-Fetch-Site": site})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    assert get_from("cross-site") == 403 and get_from("same-site") == 403
+    assert get_from("same-origin") == 200 and get_from("none") == 200  # Ordel's own page, or typed in
+
+
+def test_refresh_finds_reaper_that_wasnt_found_at_start(tmp_path, monkeypatch):
+    from studio_hub.api import Api
+    from studio_hub.library import Library
+    moved = []
+
+    class Indexed:
+        def use_reaper_dir(self, folder): moved.append(folder)
+
+    capture = StubCapture()
+    capture.helper, capture.isolate = Indexed(), Indexed()
+    api = Api(tmp_path / "nothing-here", Library(tmp_path / "lib.json"), ReaperBridge(tmp_path / "b"), capture, {})
+    assert api.plugins == []  # e.g. a portable REAPER that was closed when Ordel started
+    monkeypatch.setattr("studio_hub.api.reaper_dir", lambda: FIX)
+    api.refresh()
+    assert len(api.plugins) == 7 and api.reaper_dir == FIX and moved == [FIX, FIX]

@@ -60,8 +60,22 @@ end
 
 -- The user's project: the active tab, or the one they were in before Ordel opened its capture tab.
 local function user_project()
-  if session_alive() and cap.orig and reaper.ValidatePtr(cap.orig, "ReaProject*") then return cap.orig end
+  -- The tab in view, unless that is Ordel's capture tab: then the one the user came from.
+  if session_alive() and reaper.EnumProjects(-1) == cap.proj and cap.orig and reaper.ValidatePtr(cap.orig, "ReaProject*") then
+    return cap.orig
+  end
   return 0
+end
+
+-- Switching to the capture tab pulls the user's view away, so never do it mid-take or mid-playback.
+local function user_busy()
+  local i = 0
+  while true do
+    local proj = reaper.EnumProjects(i)
+    if not proj then return false end
+    if proj ~= cap.proj and (reaper.GetPlayStateEx(proj) & 5) ~= 0 then return true end -- 1 playing, 4 recording
+    i = i + 1
+  end
 end
 
 function handlers.ADD(name)
@@ -80,8 +94,7 @@ end
 function handlers.CAPTURE_BEGIN()
   if session_alive() then return "OK" end
   local current = reaper.EnumProjects(-1)
-  -- Switching tabs can stop playback, so never start while the user is playing or recording.
-  if reaper.GetPlayStateEx(current) ~= 0 then return "ERR\tBUSY" end
+  if user_busy() then return "ERR\tBUSY" end
   cap.orig = current
   reaper.Main_OnCommand(40859, 0) -- New project tab
   cap.proj = reaper.EnumProjects(-1)
@@ -272,8 +285,12 @@ function handlers.CHAIN_ADD(arg)
   end)
 end
 
-function handlers.CAPTURE_OPEN(name)
+function handlers.CAPTURE_OPEN(arg)
+  local name, need = arg:match("^([^\t]*)\t?(.*)$")
   if not session_alive() then return "ERR\tNO_SESSION" end
+  if user_busy() then return "ERR\tBUSY" end
+  -- Checked in the same step as the open, so work done while Ordel waited counts too.
+  if need == "saved" and handlers.CHECK_SAVED() ~= "OK" then return "ERR\tUNSAVED" end
   close_capture_track()
   reaper.SelectProjectInstance(cap.proj)
   if reaper.InsertTrackInProject then
@@ -302,8 +319,11 @@ end
 function handlers.CAPTURE_END()
   local orig = cap.orig
   if session_alive() then
+    if user_busy() then return "ERR\tBUSY" end
     close_capture_track()
     reaper.SelectProjectInstance(cap.proj)
+    -- What follows replaces and closes the tab in view: it must be ours, never the user's project.
+    if reaper.EnumProjects(-1) ~= cap.proj then return "ERR\tTAB_NOT_ACTIVE" end
     -- Swap in a clean empty project ("noprompt:") so closing the tab never asks to save.
     local f = io.open(EMPTY_RPP, "wb")
     f:write("<REAPER_PROJECT 0.1\n>\n")
@@ -320,9 +340,12 @@ end
 
 STUDIO_HUB_HANDLERS = handlers -- read by the test suite
 
+local last_id = nil
+
 local function handle(line)
   local id, verb, arg = line:match("^([^\t]*)\t([^\t]*)\t?([^\r\n]*)")
-  if not id then return end
+  if not id or id == last_id then return end -- a command file that couldn't be deleted must not run twice
+  last_id = id
   local fn = handlers[verb]
   local reply
   if not fn then
@@ -333,6 +356,7 @@ local function handle(line)
   end
   write_atomic(RESP, id .. "\t" .. reply .. "\n")
 end
+STUDIO_HUB_HANDLE = handle -- read by the test suite
 
 local last_beat = 0
 local function loop()

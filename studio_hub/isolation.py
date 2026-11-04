@@ -63,7 +63,8 @@ def unset_dedicated(ini: Path, filename: str) -> None:
 
 
 class Isolation:
-    """isolation(plugin) is a context: True inside it when the plugin can't take REAPER down."""
+    """isolation(plugin) is a context giving how the plugin runs: "bridged" (REAPER's separate process),
+    "trusted" (REAPER's own plugins, in REAPER itself) or False (it could take REAPER down)."""
 
     def __init__(self, reaper_dir: Path, data_dir: Path):
         self.ini = Path(reaper_dir) / "reaper-vstbridge64.ini"
@@ -83,6 +84,15 @@ class Isolation:
         except OSError:
             log.warning("could not restore REAPER's bridge settings", exc_info=True)
 
+    def forget(self) -> None:
+        """Look for plugin files again next time (new plugins may have been installed)."""
+        self._index = None
+
+    def use_reaper_dir(self, reaper_dir: Path) -> None:
+        self.reaper_dir = Path(reaper_dir)
+        self.ini = self.reaper_dir / "reaper-vstbridge64.ini"
+        self.forget()
+
     def _file(self, plugin) -> str | None:
         if self._index is None:
             self._index = plugin_files(plugin_roots(self.reaper_dir))
@@ -92,7 +102,7 @@ class Isolation:
     @contextmanager
     def __call__(self, plugin):
         if plugin.vendor == "Cockos":
-            yield True
+            yield "trusted"
             return
         name = self._file(plugin) if plugin.format in ("VST", "VST3") else None
         state = None
@@ -105,7 +115,7 @@ class Isolation:
             if state != "added":
                 self.pending.unlink(missing_ok=True)
         try:
-            yield state in ("added", "already")
+            yield "bridged" if state in ("added", "already") else False
         finally:
             if state == "added":
                 try:

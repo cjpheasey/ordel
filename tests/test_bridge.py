@@ -70,3 +70,42 @@ def test_script_from_an_older_ordel_is_outdated(tmp_path):
     assert not bridge.outdated(tmp_path / "reaper")
     script.write_text("-- older bridge", encoding="utf-8")
     assert bridge.outdated(tmp_path / "reaper")
+
+
+def test_slow_command_is_waited_for_once_reaper_has_taken_it(tmp_path):
+    fake = FakeReaper(tmp_path / "b", delays={"ADD": 1.0})  # e.g. a big sampler loading
+    try:
+        assert ReaperBridge(tmp_path / "b").send("ADD", "VSTi: Big (X)", timeout=0.3) == (True, "")
+    finally:
+        fake.stop()
+
+
+def test_command_reaper_never_took_is_withdrawn_so_it_cant_run_later(tmp_path):
+    bridge = ReaperBridge(tmp_path / "b")
+    (tmp_path / "b" / "heartbeat.txt").write_text("1")  # looks connected, but nothing reads commands
+    assert bridge.send("ADD", "VST: X (Y)", timeout=0.3) == (False, "timeout")
+    assert not (tmp_path / "b" / "command.txt").exists()
+
+
+def test_reaper_crashing_mid_command_is_noticed_quickly(tmp_path, monkeypatch):
+    monkeypatch.setattr("studio_hub.bridge.HEARTBEAT_MAX_AGE", 0.3)
+    fake = FakeReaper(tmp_path / "b", die_on="Crashy")
+    bridge = ReaperBridge(tmp_path / "b")
+    bridge.alive = lambda: not fake.dead  # its process is gone
+    try:
+        start = time.monotonic()
+        assert bridge.send("CAPTURE_OPEN", "VST: Crashy (X)", timeout=0.3) == (False, "not_connected")
+        assert time.monotonic() - start < 5
+    finally:
+        fake.stop()
+
+
+def test_reaper_start_up_line_survives_ordel_being_uninstalled(tmp_path):
+    reaper = tmp_path / "reaper"
+    (reaper / "Scripts").mkdir(parents=True)
+    startup = reaper / "Scripts" / "__startup.lua"
+    startup.write_text('-- mine\ndofile(reaper.GetResourcePath() .. "/Scripts/StudioHub/studio_hub_bridge.lua") -- studio-hub\n')
+    ReaperBridge(tmp_path / "b").install(reaper)
+    lines = startup.read_text().splitlines()
+    assert lines[0] == "-- mine" and len(lines) == 2  # the old line is replaced, the user's own kept
+    assert "file_exists" in lines[1] and lines[1].endswith("-- studio-hub")  # no error once the script is gone

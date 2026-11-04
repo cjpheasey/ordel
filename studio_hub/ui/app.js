@@ -108,7 +108,7 @@ const versionLabel = (p) => p.variants.find((v) => v.id === versionOf(p))?.label
 /* ---------- page help ---------- */
 
 const HELP = {
-  library: "Every plugin REAPER has scanned, with a picture of each. Double-click one to put it on the selected track. Drag a card onto a category to move it.",
+  library: "All the plugins REAPER has found on your computer, each with a picture. Double-click one to put it on the selected track. Drag a card onto a category to move it.",
   favourites: "Plugins you've starred. Select one and press F to star or unstar it. The chips narrow it down by category.",
   recent: "The last plugins you added from Ordel, newest first.",
   chains: "Save a chain from the selected REAPER track. Click a chain to put it on the selected track, or use its edit button to change it. Turn on 'Use as return track' to make it a send.",
@@ -173,7 +173,7 @@ function renderToolbar() {
   $("#view-count").textContent = S.view === "chains" ? plural(visibleChains().length, "chain")
     : S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
   renderChips(total);
-  $("#tile-size").value = S.data.settings.tile_size;
+  if (document.activeElement !== $("#tile-size")) $("#tile-size").value = S.data.settings.tile_size;  // not mid-drag
 }
 
 function renderChips(total) {
@@ -196,7 +196,7 @@ function renderBanners() {
     bar.hidden = false;
     setHtml(bar, `
       <div class="what">
-        <div class="line">${cap.paused ? "Capture paused" : "Capturing pictures"}<span>${cap.done} of ${cap.total}${cap.current && !cap.paused ? `, now ${esc(cap.current)}` : ""}</span></div>
+        <div class="line">${cap.paused ? "Capture paused" : cap.waiting ? "Waiting for REAPER to stop playing" : "Capturing pictures"}<span>${cap.done} of ${cap.total}${cap.current && !cap.paused && !cap.waiting ? `, now ${esc(cap.current)}` : ""}</span></div>
         <div class="progress"><i style="width:${pct}%"></i></div>
       </div>
       <button class="btn" data-capture="${cap.paused ? "resume" : "pause"}">${icon(cap.paused ? "play" : "pause")}${cap.paused ? "Resume" : "Pause"}</button>
@@ -463,10 +463,11 @@ async function load() {
   const cap = S.data.capture;
   if (S.wasCapturing && !cap.running) {
     if (cap.crashed) toast(`REAPER closed while opening ${cap.crashed}. Reopen REAPER, then press Capture missing to finish the rest. ${cap.crashed} will be skipped.`, true, 12000);
-    else if (cap.needs_save) toast(`Save your project in REAPER, then press Capture missing for ${plural(cap.needs_save, "more plugin")}. Those can't be opened apart from REAPER, so Ordel only opens them once your work is saved.`, true, 12000);
-    else if (cap.needs_reaper) toast(`${plural(cap.needs_reaper, "plugin")} need REAPER open to capture. Open REAPER and capture again.`, true);
-    else if (cap.error === "not_connected") toast("Capture stopped: REAPER disconnected", true);
     else if (cap.error === "BUSY") toast("Stop playback in REAPER, then capture again", true);
+    else if (cap.needs_save) toast(`Save your project in REAPER, then press Capture missing for ${plural(cap.needs_save, "more plugin")}. Those can't be opened apart from REAPER, so Ordel only opens them once your work is saved.`, true, 12000);
+    else if (cap.needs_reaper) toast(`${plural(cap.needs_reaper, "plugin")} ${cap.needs_reaper === 1 ? "needs" : "need"} REAPER open to capture. Open REAPER and capture again.`, true);
+    else if (cap.error === "not_connected") toast("Capture stopped: REAPER disconnected", true);
+    else if (cap.error) toast(`Capture stopped: ${cap.error}`, true, 8000);
     else toast(cap.failed ? `Pictures updated. ${plural(cap.failed, "plugin")} couldn't be captured` : "Pictures updated", cap.failed > 0);
   }
   S.wasCapturing = cap.running;
@@ -476,8 +477,13 @@ async function load() {
 }
 
 async function poll() {
-  await load();
-  setTimeout(poll, S.data?.capture.running ? 1000 : 3000);
+  try {
+    await load();
+  } catch (e) {
+    console.error(e);  // one bad refresh must not stop Ordel refreshing for good
+  } finally {
+    setTimeout(poll, S.data?.capture.running ? 1000 : 3000);
+  }
 }
 
 async function send(id) {
@@ -512,7 +518,11 @@ async function saveSettings(fields) {
 }
 
 async function connect() {
-  await api("/api/bridge/install", {});
+  try {
+    await api("/api/bridge/install", {});
+  } catch (e) {
+    return toast(`Couldn't set up REAPER: ${e.message}`, true, 8000);
+  }
   toast("Connecting to REAPER…");
   setTimeout(load, 1500);
 }
@@ -572,6 +582,8 @@ const actions = {
 };
 
 document.addEventListener("click", (e) => {
+  // A shortcut another app (or Ordel) already owns never reaches the page: clicking away cancels recording.
+  if (S.recording && !e.target.closest("#hotkey")) { S.recording = false; refreshSheet(); }
   const t = e.target.closest("[data-action],[data-version],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
@@ -642,7 +654,9 @@ document.addEventListener("drop", (e) => {
 function comboFromEvent(e) {
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
   let key = null;
-  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  // Letters by what the key types (AZERTY, QWERTZ...), other keys by position.
+  if (/^[a-z]$/i.test(e.key)) key = e.key.toUpperCase();
+  else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
   else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
   else if (/^F\d{1,2}$/.test(e.code)) key = e.code;
   else if (e.code === "Space") key = "Space";
@@ -676,7 +690,7 @@ document.addEventListener("keydown", async (e) => {
     if (!r.hotkey_ok && err) { err.hidden = false; err.textContent = `${combo} is already used by another app`; }
     return;
   }
-  const inField = e.target.matches("input, select, textarea");
+  const inField = e.target.matches?.("input, select, textarea") ?? false;
   const sheetOpen = !$("#sheet-backdrop").hidden;
 
   if (e.key === "Escape") {
@@ -722,5 +736,5 @@ document.querySelector('[data-window="hide"]').innerHTML = icon("close");
   if (!S.data.settings.onboarded) showSheet("welcome");
   else if (!S.data.settings.toured) startTour();
   setTimeout(poll, 3000);
-  window.addEventListener("focus", () => $("#search").focus());
+  window.addEventListener("focus", () => { if (tour.at < 0) $("#search").focus(); });  // not under the tour
 })();

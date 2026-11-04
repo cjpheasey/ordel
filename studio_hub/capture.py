@@ -8,6 +8,8 @@ from typing import Callable
 
 from PIL import Image
 
+from .bridge import replace_file
+
 log = logging.getLogger(__name__)
 
 
@@ -236,35 +238,43 @@ class CaptureRunner:
         self.close_window = close_own_window
         # A plugin's own window has no REAPER strip to trim, so it keeps its whole contents.
         self.grab_own = grab_own or (lambda hwnd, out: grab_window(hwnd, out, area=client_rect))
+        self.reaper_alive = lambda: bridge.alive()
         self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
         self._resume = threading.Event()
         self._resume.set()
         self._cancel = threading.Event()
-        self._status = {"running": False, "paused": False, "done": 0, "total": 0,
-                        "current": None, "failed": 0, "error": None, "crashed": None, "needs_reaper": 0,
-                        "needs_save": 0}
+        self._session = None  # REAPER's capture tab: None until a plugin needs it, then whether it opened
+        self._status = {"running": False, "paused": False, "done": 0, "total": 0, "current": None, "failed": 0,
+                        "error": None, "crashed": None, "needs_reaper": 0, "needs_save": 0, "waiting": False}
         self.open_timeout = 20.0
         self.crash_grace = 10.0  # REAPER can go quiet for seconds while a heavy plugin loads
+        self.busy_grace = 120.0  # still running but silent this long: treat REAPER as gone
+        self.busy_wait = 1.0  # how often to look again while the user is playing or recording
 
     def status(self) -> dict:
         return dict(self._status, paused=not self._resume.is_set())
 
     def start(self, ids: list[str] | None = None) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        plugins = self.plugins_fn()
-        if ids is None:
-            # Never-tried plugins first; ones that crashed REAPER are only retried on request.
-            todo = [p for p in plugins if self.library.capture_status(p.id) == "none"]
-            todo += [p for p in plugins if self.library.capture_status(p.id) == "failed"]
-        else:
-            wanted = set(ids)
-            todo = [p for p in plugins if p.id in wanted]
-        self._cancel.clear()
-        self._status.update(running=True, done=0, total=len(todo), current=None, failed=0, error=None,
-                            crashed=None, needs_reaper=0, needs_save=0)
-        self._thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
-        self._thread.start()
+        with self._lock:  # two quick requests must not start two runs
+            if self._thread and self._thread.is_alive():
+                return
+            for indexed in (self.helper, self.isolate):  # find plugins installed since the last run
+                getattr(indexed, "forget", lambda: None)()
+            plugins = self.plugins_fn()
+            if ids is None:
+                # Never-tried plugins first; ones that crashed are only retried on request.
+                todo = [p for p in plugins if self.library.capture_status(p.id) == "none"]
+                todo += [p for p in plugins if self.library.capture_status(p.id) == "failed"]
+            else:
+                wanted = set(ids)
+                todo = [p for p in plugins if p.id in wanted]
+            self._cancel.clear()
+            self._resume.set()  # a pause left over from the last run must not hold this one
+            self._status.update(running=True, done=0, total=len(todo), current=None, failed=0, error=None,
+                                crashed=None, needs_reaper=0, needs_save=0, waiting=False)
+            self._thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
+            self._thread.start()
 
     def pause(self) -> None:
         self._resume.clear()
@@ -284,53 +294,102 @@ class CaptureRunner:
 
     def _run(self, todo) -> None:
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
-        session = None  # REAPER's capture tab opens only once a plugin actually needs REAPER
+        self._session = None
         try:
             for plugin in todo:
                 self._resume.wait()
                 if self._cancel.is_set():
                     break
                 self._status["current"] = plugin.name
-                result = self._via_helper(plugin)
-                if result is None:
-                    if session is None:
-                        ok, detail = self.bridge.send("CAPTURE_BEGIN")
-                        session = ok
-                        if not ok:
-                            self._status["error"] = detail
-                    if not session:
-                        self._status["needs_reaper"] += 1  # left as is, to capture once REAPER is open
-                        self._status["done"] += 1
-                        continue
-                    with self.isolate(plugin) as safe:
-                        if not safe and not self._work_saved():
-                            self._status["needs_save"] += 1  # left as is, to capture once the work is saved
-                            self._status["done"] += 1
-                            continue
-                        result = self._capture_one(plugin)
-                    if result != "ok" and self._reaper_gone():
-                        result = "crashed"  # REAPER went down while this plugin was open
-                        session = False
-                        self._status.update(error="not_connected", crashed=plugin.name)
-                self.library.set_capture(plugin.id, result)
+                try:
+                    result = self._capture(plugin)
+                    if result is not None:
+                        self._record(plugin, result)
+                except Exception:  # one bad plugin must not end the run
+                    log.exception("capture failed for %s", plugin.name)
+                    self._status["failed"] += 1
                 self._status["done"] += 1
-                self._status["failed"] += result != "ok"
-            if session:
-                self.bridge.send("CAPTURE_END")
         except Exception as e:  # a capture problem must never take the app down
             log.exception("capture run failed")
             self._status["error"] = str(e)
         finally:
-            self._status.update(running=False, current=None)
+            if self._session:  # always close REAPER's capture tab
+                with contextlib.suppress(Exception):
+                    self._send_when_idle("CAPTURE_END", cancellable=False)
+            self._status.update(running=False, current=None, waiting=False)
+
+    def _new_picture(self, plugin) -> Path:
+        return self.snapshots_dir / f"{plugin.id}.new.png"
+
+    def _record(self, plugin, result: str) -> None:
+        """Keep the new picture only if it worked; a failed retake never hides a good or custom picture."""
+        new = self._new_picture(plugin)
+        if result == "ok" and new.exists():
+            replace_file(new, self.snapshots_dir / f"{plugin.id}.png")  # the UI may be reading the old one
+            self.library.set_capture(plugin.id, "ok")
+            return
+        new.unlink(missing_ok=True)
+        self._status["failed"] += 1
+        if self.library.capture_status(plugin.id) not in ("ok", "custom"):
+            self.library.set_capture(plugin.id, "failed" if result in ("ok", "blank") else result)
+
+    def _capture(self, plugin) -> str | None:
+        """The result, or None when the plugin is left for later (REAPER closed, unsaved work, stopped)."""
+        helper = self._via_helper(plugin)  # 'ok' | 'failed' | 'crashed' | 'hung' | None
+        if helper in ("ok", "failed"):
+            return helper
+        if not self._ensure_session():  # before the isolation, so Ordel's REAPER setting isn't left in place
+            if not self._cancel.is_set():
+                self._status["needs_reaper"] += 1  # left as is, to capture once REAPER is open
+            return None
+        with self.isolate(plugin) as safe:
+            if helper in ("crashed", "hung") and not safe:
+                return "crashed"  # it froze or crashed outside REAPER: only try it where it can't take REAPER down
+            result = self._capture_one(plugin, saved_only=not safe)
+        if result == "blank" and safe == "bridged" and helper != "crashed":
+            # Some plugins draw nothing in REAPER's separate process (Kontakt 7): try once in REAPER itself,
+            # only when nothing unsaved could be lost if it crashed (checked as it opens).
+            result = self._capture_one(plugin, saved_only=True)
+        if result == "unsaved":
+            self._status["needs_save"] += 1  # left for later, or kept as failed, until the work is saved
+            return None if self.library.capture_status(plugin.id) == "none" else "failed"
+        if result == "gone":
+            self._session = False
+            self._status.update(error="not_connected", crashed=plugin.name)
+            return "crashed"  # REAPER went down while this plugin was open
+        return result
+
+    def _ensure_session(self) -> bool:
+        if self._session is None:
+            ok, detail = self._send_when_idle("CAPTURE_BEGIN")
+            if detail == "cancelled":
+                return False
+            self._session = ok
+            if not ok:
+                self._status["error"] = detail
+        return bool(self._session)
+
+    def _send_when_idle(self, verb: str, arg: str = "", timeout: float = 5.0, cancellable: bool = True):
+        """Send to REAPER, waiting (and saying so) while the user is playing or recording there:
+        switching to the capture tab would pull their view away mid-take."""
+        while True:
+            ok, detail = self.bridge.send(verb, arg, timeout=timeout)
+            if ok or detail != "BUSY":
+                self._status["waiting"] = False
+                return ok, detail
+            self._status["waiting"] = True
+            if not cancellable:
+                time.sleep(self.busy_wait)
+            elif self._cancel.wait(self.busy_wait):
+                self._status["waiting"] = False
+                return False, "cancelled"
 
     def _via_helper(self, plugin) -> str | None:
-        """'ok', 'failed' or 'crashed' when the helper handled it; None means REAPER should try it."""
+        """'ok', 'failed' or 'crashed' (also for a hang) when the helper tried it; None when REAPER should."""
         if self.helper is None:
             return None
-        result = self.helper(plugin, self.snapshots_dir / f"{plugin.id}.png")
-        if result in ("crashed", "hung"):
-            return "crashed"  # it would likely take REAPER down too, so don't try it there
-        return result if result in ("ok", "failed") else None
+        result = self.helper(plugin, self._new_picture(plugin))
+        return result if result in ("ok", "failed", "crashed", "hung") else None
 
     def _work_saved(self) -> bool:
         """A plugin that can't be isolated could crash REAPER, so only open it when nothing would be lost."""
@@ -338,15 +397,26 @@ class CaptureRunner:
         return ok or detail == "UNKNOWN_VERB"  # an older bridge can't tell; behave as before
 
     def _reaper_gone(self) -> bool:
-        deadline = time.monotonic() + self.crash_grace
-        while time.monotonic() < deadline:
+        """REAPER stopped answering: it crashed if its process is gone; a silent but running REAPER is busy."""
+        start = time.monotonic()
+        while True:
             if self.bridge.connected():
                 return False
+            waited = time.monotonic() - start
+            if (waited >= self.crash_grace and not self.reaper_alive()) or waited >= self.busy_grace:
+                return True
             time.sleep(0.2)
-        return True
 
-    def _capture_one(self, plugin) -> str:
-        ok, detail = self.bridge.send("CAPTURE_OPEN", plugin.add_name, timeout=self.open_timeout)
+    def _capture_one(self, plugin, saved_only: bool = False) -> str | None:
+        """'ok', 'failed', 'blank' (window found, nothing drawn), 'unsaved' (refused: work not saved),
+        'gone' (REAPER went down), or None when stopped."""
+        arg = plugin.add_name + ("\tsaved" if saved_only else "")
+        ok, detail = self._send_when_idle("CAPTURE_OPEN", arg, timeout=self.open_timeout)
+        if detail == "cancelled":
+            return None
+        if detail == "UNSAVED":
+            return "unsaved"
+        gone = False
         try:
             if not ok:
                 log.info("capture %s: REAPER couldn't open it (%s)", plugin.add_name, detail)
@@ -356,7 +426,7 @@ class CaptureRunner:
             if not hwnd:
                 log.info("capture %s: its window never appeared", plugin.add_name)
                 return "failed"
-            out = self.snapshots_dir / f"{plugin.id}.png"
+            out = self._new_picture(plugin)
             try:
                 if self.grab(hwnd, out):
                     return "ok"
@@ -369,12 +439,15 @@ class CaptureRunner:
                     finally:
                         self.close_window(own, plugin.name)
                 log.info("capture %s: picture came out blank or too small", plugin.add_name)
-                return "failed"
+                return "blank"
             finally:
                 self.close_window(hwnd, plugin.name)
         except Exception:
             log.exception("capture failed for %s", plugin.name)
             return "failed"
         finally:
-            if not self._reaper_gone():
+            gone = self._reaper_gone()
+            if not gone:
                 self.bridge.send("CAPTURE_CLOSE")
+            else:
+                return "gone"  # noqa: B012 - REAPER going down outranks whatever the grab said

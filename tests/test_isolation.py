@@ -80,3 +80,35 @@ def test_what_cant_be_isolated(tmp_path):
     with iso(plugin(vendor="Cockos", key="reacomp.dll")) as safe:
         assert safe  # REAPER's own plugins are trusted
     assert ini.read_text() == USER_INI
+
+
+def test_forget_finds_plugins_installed_since(tmp_path):
+    iso, ini, _ = setup(tmp_path)
+    new = plugin(key="Brand_New.dll")
+    with iso(new) as safe:
+        assert not safe
+    (tmp_path / "VSTPlugins" / "Brand New.dll").write_bytes(b"")
+    iso.forget()
+    with iso(new) as safe:
+        assert safe and "Brand New.dll=2 -1" in ini.read_text()
+
+
+def test_isolation_follows_a_reaper_folder_found_later(tmp_path):
+    iso, ini, data = setup(tmp_path)
+    other = tmp_path / "portable"
+    other.mkdir()
+    (other / "reaper.ini").write_text(f"[reaper]\nvstpath64={tmp_path / 'VSTPlugins'}\n")
+    iso.use_reaper_dir(other)
+    with iso(plugin()) as safe:
+        assert safe and "Ampeg SVTVR Classic.dll=2 -1" in (other / "reaper-vstbridge64.ini").read_text()
+    assert ini.read_text() == USER_INI  # the old folder's settings untouched
+
+
+def test_isolation_says_how_the_plugin_will_run(tmp_path):
+    iso, _, _ = setup(tmp_path)
+    with iso(plugin()) as how:
+        assert how == "bridged"  # in REAPER's separate process
+    with iso(plugin(vendor="Cockos", key="reacomp.dll")) as how:
+        assert how == "trusted"  # REAPER's own plugins run in REAPER itself
+    with iso(plugin("CLAP", "Thing.clap")) as how:
+        assert how is False

@@ -632,6 +632,7 @@ body[data-page="chains"] .size { visibility: hidden; }
 .chain-row .thumb { width: 40px; height: 40px; }
 .chain-row .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .chain-row .missing { font-size: 11px; color: #ff9f0a; }
+[data-theme="light"] .chain-row .missing { color: #a04f00; }  /* readable on white */
 .chain-row.empty-row { color: var(--text-3); }
 .row-tools { display: flex; }
 .row-tools .icon-btn { width: 26px; height: 26px; }

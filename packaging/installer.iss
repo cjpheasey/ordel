@@ -42,7 +42,11 @@ Filename: "taskkill"; Parameters: "/im Ordel.exe /f"; Flags: runhidden; RunOnceI
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
+  begin
+    { Ordel's script inside REAPER; REAPER's start-up line skips it once it's gone. }
+    DelTree(ExpandConstant('{userappdata}\REAPER\Scripts\StudioHub'), True, True, True);
     if MsgBox('Also remove your Ordel library (favourites, categories and plugin pictures)?',
               mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       DelTree(ExpandConstant('{userappdata}\StudioHub'), True, True, True);
+  end;
 end;

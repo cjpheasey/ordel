@@ -32,6 +32,7 @@ def make(tmp_path, grab_fails=(), fake=True, die_on=None, helper=None):
 
     runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins,
                            find_window=lambda name, timeout=8.0, plugin_name='': name, grab=grab, helper=helper)
+    runner.bridge.alive = lambda: reaper is not None and not reaper.dead  # the stand-in's "process"
     return runner, lib, plugins, reaper, grabbed
 
 
@@ -240,9 +241,11 @@ def test_plugin_the_helper_cant_load_falls_back_to_reaper(tmp_path):
         reaper.stop()
 
 
-def test_crash_or_hang_in_helper_is_skipped_without_touching_reaper(tmp_path):
+def test_crash_or_hang_in_helper_is_skipped_without_touching_reaper_when_it_cant_be_isolated(tmp_path):
+    import contextlib
     outcomes = {"Vital": "crashed", "AmpliTube 5": "hung"}
     runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper(outcomes, []))
+    runner.isolate = lambda plugin: contextlib.nullcontext(plugin.vendor == "Cockos")
     try:
         runner.start()
         wait_done(runner)
@@ -289,13 +292,14 @@ def unsafe(plugin):
 
 def test_plugin_that_cant_be_isolated_waits_for_saved_work(tmp_path):
     runner, lib, plugins, reaper, _ = make(tmp_path)
-    reaper.replies["CHECK_SAVED"] = "ERR\tUNSAVED"
+    # REAPER refuses an "only if saved" open while there is unsaved work (checked as it opens).
+    reaper.replies["CAPTURE_OPEN"] = lambda arg: "ERR\tUNSAVED" if arg.endswith("\tsaved") else "OK"
     runner.isolate = unsafe
     try:
         runner.start()
         wait_done(runner)
         opened = reaper_opened(reaper)
-        assert opened and all("Cockos" in a for a in opened)
+        assert opened and all(a.endswith("\tsaved") != ("Cockos" in a) for a in opened)
         others = [p for p in plugins if p.vendor != "Cockos"]
         assert runner.status()["needs_save"] == len(others)
         assert all(lib.capture_status(p.id) == "none" for p in others)  # kept for next time
@@ -377,3 +381,185 @@ def test_running_reaper_is_found_by_its_program_path(monkeypatch):
     assert capture._reaper_pids() == {2, 3}
     monkeypatch.setattr(capture, "_processes", lambda: iter(procs[:2]))
     assert capture.running_reaper_exe() is None
+
+
+def by_name(plugins, name):
+    return next(p for p in plugins if p.name == name)
+
+
+def test_failed_retake_keeps_the_existing_picture(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path, grab_fails={"VST: ReaComp (Cockos)"})
+    comp = by_name(plugins, "ReaComp")
+    (tmp_path / "snaps").mkdir()
+    (tmp_path / "snaps" / f"{comp.id}.png").write_bytes(b"old picture")
+    lib.set_capture(comp.id, "custom")
+    try:
+        runner.start([comp.id])
+        wait_done(runner)
+        assert lib.capture_status(comp.id) == "custom" and runner.status()["failed"] == 1
+        assert (tmp_path / "snaps" / f"{comp.id}.png").read_bytes() == b"old picture"
+    finally:
+        reaper.stop()
+
+
+def test_new_picture_replaces_the_old_one_only_when_it_worked(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    comp = by_name(plugins, "ReaComp")
+    (tmp_path / "snaps").mkdir()
+    (tmp_path / "snaps" / f"{comp.id}.png").write_bytes(b"old picture")
+    try:
+        runner.start([comp.id])
+        wait_done(runner)
+        assert (tmp_path / "snaps" / f"{comp.id}.png").read_bytes() == b"png"
+        assert not list((tmp_path / "snaps").glob("*.new.png"))
+    finally:
+        reaper.stop()
+
+
+def test_plugin_that_hangs_in_the_helper_gets_a_second_try_in_reapers_safe_process(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper({"Vital": "hung"}, []))
+    try:
+        runner.start([by_name(plugins, "Vital").id])
+        wait_done(runner)
+        assert "VST3i: Vital (Vital Audio)" in reaper_opened(reaper)
+        assert lib.capture_status(by_name(plugins, "Vital").id) == "ok"
+    finally:
+        reaper.stop()
+
+
+def test_plugin_that_hangs_in_the_helper_and_cant_be_isolated_is_not_risked_in_reaper(tmp_path):
+    import contextlib
+    runner, lib, plugins, reaper, _ = make(tmp_path, helper=fake_helper({"Vital": "crashed"}, []))
+    runner.isolate = lambda plugin: contextlib.nullcontext(False)
+    try:
+        runner.start([by_name(plugins, "Vital").id])
+        wait_done(runner)
+        assert reaper_opened(reaper) == [] and lib.capture_status(by_name(plugins, "Vital").id) == "crashed"
+    finally:
+        reaper.stop()
+
+
+def test_capture_waits_while_the_user_is_playing(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.busy_wait = 0.05
+    reaper.replies["CAPTURE_OPEN"] = ["ERR\tBUSY", "ERR\tBUSY", "ERR\tBUSY", "OK"]
+    comp = by_name(plugins, "ReaComp")
+    seen_waiting = []
+    try:
+        runner.start([comp.id])
+        end = time.monotonic() + 10
+        while runner.status()["running"] and time.monotonic() < end:
+            seen_waiting.append(runner.status()["waiting"])
+            time.sleep(0.01)
+        assert lib.capture_status(comp.id) == "ok" and any(seen_waiting) and not runner.status()["waiting"]
+    finally:
+        reaper.stop()
+
+
+def test_stop_works_while_waiting_for_playback_to_end(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.busy_wait = 0.05
+    reaper.replies["CAPTURE_OPEN"] = ["ERR\tBUSY"]
+    try:
+        runner.start([by_name(plugins, "ReaComp").id])
+        time.sleep(0.3)
+        runner.cancel()
+        wait_done(runner, timeout=5)
+        assert lib.capture_status(by_name(plugins, "ReaComp").id) == "none"
+    finally:
+        reaper.stop()
+
+
+def test_slow_reaper_is_not_mistaken_for_a_crash(tmp_path, monkeypatch):
+    monkeypatch.setattr("studio_hub.bridge.HEARTBEAT_MAX_AGE", 0.3)
+    plugins = load_plugins(FIX)
+    lib = Library(tmp_path / "lib.json")
+    reaper = FakeReaper(tmp_path / "bridge", stall_after_open=2.0)  # quiet for 2 s, but its process is alive
+    runner = CaptureRunner(ReaperBridge(tmp_path / "bridge"), lib, tmp_path / "snaps", lambda: plugins[:1],
+                           find_window=lambda name, timeout=8.0, plugin_name='': None, grab=lambda h, o: False)
+    runner.crash_grace = 0.5
+    runner.reaper_alive = lambda: True
+    try:
+        runner.start()
+        wait_done(runner, timeout=20)
+        assert lib.capture_status(plugins[0].id) == "failed" and runner.status()["crashed"] is None
+    finally:
+        reaper.stop()
+
+
+def test_a_new_run_never_starts_paused(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    try:
+        runner.pause()
+        runner.start([plugins[0].id])
+        assert runner.status()["paused"] is False
+        wait_done(runner)
+    finally:
+        reaper.stop()
+
+
+def test_each_run_looks_for_newly_installed_plugin_files(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    forgotten = []
+
+    class Indexed:
+        def __init__(self, name): self.name = name
+        def forget(self): forgotten.append(self.name)
+        def __call__(self, plugin, out=None): return None
+
+    runner.helper, iso = Indexed("helper"), Indexed("isolate")
+    runner.isolate = lambda plugin: __import__("contextlib").nullcontext(True)
+    runner.isolate.forget = iso.forget
+    try:
+        runner.start([plugins[0].id])
+        wait_done(runner)
+        assert sorted(forgotten) == ["helper", "isolate"]
+    finally:
+        reaper.stop()
+
+
+def bridged(plugin):
+    """Stands in for Isolation running the plugin in REAPER's separate process."""
+    import contextlib
+    return contextlib.nullcontext("bridged")
+
+
+def grab_second_time_only():
+    calls = []
+
+    def grab(hwnd, out):
+        calls.append(hwnd)
+        if len(calls) < 2:
+            return False  # e.g. Kontakt draws nothing in REAPER's separate process
+        out.write_bytes(b"png")
+        return True
+    return grab, calls
+
+
+def test_plugin_that_draws_nothing_in_the_separate_process_is_tried_in_reaper_once_work_is_saved(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.isolate = bridged
+    runner.grab, calls = grab_second_time_only()
+    vital = by_name(plugins, "Vital")
+    try:
+        runner.start([vital.id])
+        wait_done(runner)
+        assert len(calls) == 2 and lib.capture_status(vital.id) == "ok"
+        assert ("CAPTURE_OPEN", "VST3i: Vital (Vital Audio)\tsaved") in reaper.received  # only if saved
+    finally:
+        reaper.stop()
+
+
+def test_no_second_try_in_reaper_itself_while_work_is_unsaved(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.isolate = bridged
+    runner.grab, calls = grab_second_time_only()
+    reaper.replies["CAPTURE_OPEN"] = lambda arg: "ERR\tUNSAVED" if arg.endswith("\tsaved") else "OK"
+    vital = by_name(plugins, "Vital")
+    try:
+        runner.start([vital.id])
+        wait_done(runner)
+        assert len(calls) == 1 and lib.capture_status(vital.id) == "none"  # left for when work is saved
+        assert runner.status()["needs_save"] == 1  # so Ordel asks the user to save, then capture again
+    finally:
+        reaper.stop()

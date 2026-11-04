@@ -21,9 +21,9 @@ def run(path: str, name: str | None) -> None:
         import pedalboard
 
         plugin = pedalboard.load_plugin(path, plugin_name=name) if name else pedalboard.load_plugin(path)
-    except Exception:
+        plugin.show_editor()
+    except Exception:  # won't load, or has no window outside a DAW: REAPER should try it instead
         sys.exit(LOAD_FAILED)
-    plugin.show_editor()
 
 
 def helper_command(path: str, name: str | None) -> list[str]:
@@ -42,8 +42,10 @@ def _start_in_job(cmd: list[str]):
     info["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
     win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
     flags = win32con.CREATE_SUSPENDED | win32process.CREATE_NO_WINDOW
+    # Run from source, "-m studio_hub" needs the project folder; the built app doesn't care.
+    cwd = None if getattr(sys, "frozen", False) else str(Path(__file__).resolve().parent.parent)
     process, thread, _, _ = win32process.CreateProcess(
-        None, subprocess.list2cmdline(cmd), None, None, False, flags, None, None, win32process.STARTUPINFO())
+        None, subprocess.list2cmdline(cmd), None, None, False, flags, None, cwd, win32process.STARTUPINFO())
     win32job.AssignProcessToJobObject(job, process)
     win32process.ResumeThread(thread)
     thread.Close()
@@ -102,7 +104,14 @@ class HelperCapture:
     def __init__(self, reaper_dir: Path, timeout: float = 30.0):
         self.roots = plugin_roots(reaper_dir)
         self.timeout = timeout
-        self._index: dict[str, Path] | None = None  # shortcut: built once per app run; plugins added later use REAPER
+        self._index: dict[str, Path] | None = None  # built on first use; forget() makes the next use look again
+
+    def forget(self) -> None:
+        self._index = None
+
+    def use_reaper_dir(self, reaper_dir: Path) -> None:
+        self.roots = plugin_roots(reaper_dir)
+        self.forget()
 
     def __call__(self, plugin, out: Path) -> str | None:
         if plugin.format != "VST3":

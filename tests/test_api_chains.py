@@ -160,3 +160,8 @@ def test_chain_settings_survive_the_chain_folder_going_missing(env):
     api.state()  # e.g. a synced folder that is briefly unavailable
     shutil.move(str(reaper_dir / "FXChains-away"), str(reaper_dir / "FXChains"))
     assert chain(api, "Plate")["return_track"] is True
+
+
+def test_js_effects_are_listed_by_name_not_file_path(env):
+    api, _, _ = env
+    assert chain(api, "Vocal")["plugins"][2] == {"name": "volume", "id": None, "variant": None}

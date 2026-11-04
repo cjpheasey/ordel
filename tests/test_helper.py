@@ -91,3 +91,33 @@ def test_helper_capture_finds_the_file_and_names_shell_plugins(tmp_path, monkeyp
     assert calls[-1][-1] == "IR-L Mono"
     assert capture(plugin("ReaComp", "VST", "reacomp.dll"), tmp_path / "c.png") is None
     assert capture(plugin("Gone", "VST3", "Gone.vst3"), tmp_path / "d.png") is None
+
+
+def test_plugin_whose_window_cant_open_is_handed_to_reaper(monkeypatch):
+    import types
+
+    import pytest
+
+    from studio_hub import helper
+
+    class NoGui:
+        def show_editor(self):
+            raise RuntimeError("Plugin has no editor")
+
+    monkeypatch.setitem(sys.modules, "pedalboard", types.SimpleNamespace(load_plugin=lambda *a, **k: NoGui()))
+    with pytest.raises(SystemExit) as stop:
+        helper.run("C:/x/Plug.vst3", None)
+    assert stop.value.code == LOAD_FAILED  # 'unsupported': REAPER tries it, instead of marking it crashed
+
+
+def test_forget_finds_plugins_installed_since(tmp_path, monkeypatch):
+    from studio_hub import helper
+    from studio_hub.reaper_db import Plugin
+    monkeypatch.setattr(helper, "capture_with_helper", lambda cmd, out, grab, timeout: "ok")
+    capture = helper.HelperCapture(tmp_path / "reaper")
+    capture.roots = [tmp_path]
+    new = Plugin("x", "New", "V", "VST3", False, "VST3: New (V)", key="New.vst3")
+    assert capture(new, tmp_path / "a.png") is None  # not installed yet
+    (tmp_path / "New.vst3").write_bytes(b"")
+    capture.forget()
+    assert capture(new, tmp_path / "a.png") == "ok"

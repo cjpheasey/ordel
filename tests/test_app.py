@@ -30,3 +30,21 @@ def test_resizing_stops_at_the_minimum_size_without_moving_the_far_edge():
     start = (100, 100, 1300, 900)
     assert resized_rect(start, -1000, 0, "e", 900, 600) == (100, 100, 1000, 900)
     assert resized_rect(start, 1000, 1000, "nw", 900, 600) == (400, 300, 1300, 900)
+
+
+def test_own_window_is_found_by_process_not_just_title():
+    from studio_hub.app import pick_own_window
+    windows = [(11, "Ordel", 500, "CabinetWClass"),                         # File Explorer open on dist\Ordel
+               (22, "Ordel", 777, "WindowsForms10.Window.8.app.0.aec740"),  # Ordel itself
+               (33, "Ordel", 777, "WindowsForms10.Window.8.app.0.x")]        # a hidden helper window of ours
+    assert pick_own_window(windows, pid=777) == 22
+    assert pick_own_window(windows[:1], pid=777) == 0
+
+
+def test_saved_position_is_checked_in_screen_pixels(monkeypatch):
+    import studio_hub.app as app
+    asked = []
+    monkeypatch.setattr(app, "_dpi_scale", lambda: 1.5)  # a 150% display
+    monkeypatch.setattr(app.win32api, "MonitorFromPoint", lambda pt, flags: asked.append(pt) or 1)
+    assert app.safe_geometry({"x": 1300, "y": 100, "width": 1200, "height": 780})["x"] == 1300
+    assert asked == [(round((1300 + 40) * 1.5), round((100 + 20) * 1.5))]  # pywebview stores x/y unscaled

@@ -2,6 +2,7 @@
 import ctypes
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -46,15 +47,27 @@ def resized_rect(start: tuple, dx: int, dy: int, edge: str, min_w: int, min_h: i
     return left, top, right, bottom
 
 
+def _dpi_scale() -> float:
+    return ctypes.windll.user32.GetDpiForSystem() / 96
+
+
 def safe_geometry(geo: dict | None) -> dict:
     """Saved window size/position, minus a position that is minimised (-32000) or on an unplugged monitor."""
     if not geo:
         return {}
     out = {k: geo[k] for k in ("width", "height") if geo.get(k, 0) >= 400}
     x, y = geo.get("x"), geo.get("y")
-    if isinstance(x, int) and isinstance(y, int) and win32api.MonitorFromPoint((x + 40, y + 20), 0):
-        out.update(x=x, y=y)
+    if isinstance(x, int) and isinstance(y, int):
+        scale = _dpi_scale()  # pywebview stores the position unscaled; monitors are measured in screen pixels
+        if win32api.MonitorFromPoint((round((x + 40) * scale), round((y + 20) * scale)), 0):
+            out.update(x=x, y=y)
     return out
+
+
+def pick_own_window(windows: list[tuple[int, str, int, str]], pid: int) -> int:
+    """Ordel's window among (hwnd, title, pid, class): a File Explorer window on the Ordel folder has the same title."""
+    return next((h for h, title, owner, cls in windows
+                 if title == TITLE and owner == pid and cls.startswith("WindowsForms")), 0)
 
 
 def _light_taskbar() -> bool:
@@ -96,7 +109,10 @@ class App:
             "resize": self.resize,
             "pick_image": self.pick_image, "set_hotkey": self.set_hotkey,
         })
-        self.api.refresh_bridge()
+        try:
+            self.api.refresh_bridge()
+        except OSError:  # e.g. REAPER's folder is read-only: Ordel must still start
+            log.warning("couldn't update the REAPER script", exc_info=True)
         self.server = make_server(self.api, resource("ui"), snapshots_dir())
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
         self.window: webview.Window | None = None
@@ -104,10 +120,18 @@ class App:
         self.hotkey = HotkeyListener(self.toggle)
         self.visible = True
         self._quitting = False
+        self._own_hwnd = 0
 
     # --- window ---
     def _hwnd(self) -> int:
-        return win32gui.FindWindow(None, TITLE)
+        if not (self._own_hwnd and win32gui.IsWindow(self._own_hwnd)):
+            import win32process
+
+            windows = []
+            win32gui.EnumWindows(lambda h, _: windows.append(
+                (h, win32gui.GetWindowText(h), win32process.GetWindowThreadProcessId(h)[1], win32gui.GetClassName(h))), None)
+            self._own_hwnd = pick_own_window(windows, os.getpid())
+        return self._own_hwnd
 
     def show(self) -> None:
         self.window.show()
@@ -140,7 +164,9 @@ class App:
         scale = ctypes.windll.user32.GetDpiForWindow(hwnd) / 96
         min_w, min_h = round(MIN_SIZE[0] * scale), round(MIN_SIZE[1] * scale)
         flags = win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
-        while win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000:  # until the mouse button is let go
+        # The physical button that acts as "left" (swapped for left-handed mouse settings).
+        button = win32con.VK_RBUTTON if win32api.GetSystemMetrics(win32con.SM_SWAPBUTTON) else win32con.VK_LBUTTON
+        while win32api.GetAsyncKeyState(button) & 0x8000:  # until the mouse button is let go
             x, y = win32api.GetCursorPos()
             left, top, right, bottom = resized_rect(start, x - sx, y - sy, edge, min_w, min_h)
             win32gui.SetWindowPos(hwnd, 0, left, top, right - left, bottom - top, flags)
@@ -203,9 +229,25 @@ class App:
             width=geo.get("width", 1200), height=geo.get("height", 780), x=geo.get("x"), y=geo.get("y"),
             min_size=MIN_SIZE, background_color=BACKGROUNDS.get(self.library.settings["theme"], "#14171F"))
         self.window.events.closing += self._on_closing
+        self.window.events.shown += self._allow_shutdown
         self._start_tray()
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(data_dir() / "webview"),
                       icon=str(resource("assets/icon.ico")))
+
+    def _allow_shutdown(self) -> None:
+        """Closing normally hides Ordel to the tray; that must never stop Windows shutting down or restarting.
+        This runs after pywebview's own close handler, so it has the last word."""
+        import clr
+
+        clr.AddReference("System.Windows.Forms")
+        from System.Windows.Forms import CloseReason
+
+        def closing(_sender, args):
+            if args.CloseReason in (CloseReason.WindowsShutDown, CloseReason.TaskManagerClosing):
+                self._quitting = True
+                args.Cancel = False
+
+        self.window.native.FormClosing += closing
 
     def _on_closing(self):
         if self._quitting:

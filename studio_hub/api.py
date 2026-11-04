@@ -12,6 +12,7 @@ from PIL import Image
 from . import chains as chainlib
 from .categories import CATEGORIES
 from .library import Library
+from .paths import reaper_dir
 from .reaper_db import Plugin, load_plugins
 
 _UNSET = object()
@@ -67,6 +68,12 @@ class Api:
         return [i for i in ids if i not in seen]
 
     def refresh(self) -> dict:
+        if not self.plugins:  # nothing found yet, e.g. a portable REAPER that was closed when Ordel started
+            found = reaper_dir()
+            if found != self.reaper_dir:
+                self.reaper_dir = found
+                for indexed in (getattr(self.capture, "helper", None), getattr(self.capture, "isolate", None)):
+                    getattr(indexed, "use_reaper_dir", lambda folder: None)(found)
         self.plugins = load_plugins(self.reaper_dir)
         return self.state()
 
@@ -118,7 +125,7 @@ class Api:
             plugins = []
             for n in names:
                 group, version = versions.get(n, (None, None))
-                shown = group.name if group else (_PLUGIN_NAME.match(n) or [n, n])[1]
+                shown = group.name if group else (_PLUGIN_NAME.match(n) or [n, re.split(r"[\\/]", n)[-1]])[1]
                 plugins.append({"name": shown, "id": group and group.id, "variant": version and version.id})
             return {"id": chain_id, "name": name, "kind": chain_id.split(":", 1)[0], "ordel": ordel,
                     "return_track": bool(m.get("return_track", False)), "hidden": bool(m.get("hidden", False)),
@@ -272,7 +279,8 @@ class Api:
                 raise ValueError("retake needs an id")
             self.capture.start([id])
         elif action == "recapture_all":
-            self.capture.start([p.id for p in self.plugins])
+            # Pictures you chose yourself are never replaced.
+            self.capture.start([p.id for p in self.plugins if self.library.capture_status(p.id) != "custom"])
         elif action == "capture_new":
             new = self.new_plugins()
             if new:

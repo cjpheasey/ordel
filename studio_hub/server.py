@@ -48,7 +48,11 @@ def make_server(api: Api, ui_dir: Path, snapshots_dir: Path, port: int = 0) -> T
 
         def _foreign(self) -> bool:
             # Block web pages from driving the app: only our own origin may call it.
-            if self.headers.get("Host") != f"127.0.0.1:{self.server.server_address[1]}":
+            # Browsers say where a request comes from: another site may not even look (e.g. probe which
+            # plugin pictures exist); only Ordel's own page or a typed-in address may.
+            site = self.headers.get("Sec-Fetch-Site")
+            if (self.headers.get("Host") != f"127.0.0.1:{self.server.server_address[1]}"
+                    or site not in (None, "same-origin", "none")):
                 self._json(403, {"error": "forbidden"})
                 return True
             return False

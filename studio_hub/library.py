@@ -7,6 +7,7 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 
+from .bridge import replace_file
 from .categories import KEYS, resolve_category
 from .reaper_db import Plugin, tidy_developer
 
@@ -88,7 +89,7 @@ class Library:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": 1, "settings": self.settings, "plugins": self._plugins,
                                    "chains": self._chains, "seen": self._seen}, indent=1), encoding="utf-8")
-        os.replace(tmp, self.path)
+        replace_file(tmp, self.path)
 
     def _set(self, plugin_id: str, **fields) -> None:
         with self._lock:

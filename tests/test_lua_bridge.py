@@ -76,6 +76,7 @@ def lua(tmp_path):
     source = resource("reaper/studio_hub_bridge.lua").read_text(encoding="utf-8")
     runtime.execute(source.replace(PLACEHOLDER, f"[==[{tmp_path}]==]"))
     handlers = runtime.globals().STUDIO_HUB_HANDLERS
+    state.handle = runtime.globals().STUDIO_HUB_HANDLE
     return handlers, state
 
 
@@ -284,3 +285,54 @@ def test_chain_verbs_never_touch_the_capture_tab(lua, tmp_path):
     capture = state.active
     assert handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}") == "OK\t1"
     assert fx(state.user.tracks[1]) == EQ_COMP and len(capture.tracks) == 0 and track_count(state) == 1
+
+
+def test_capture_waits_while_the_user_is_playing_or_recording(lua):
+    handlers, state = lua
+    assert handlers.CAPTURE_BEGIN() == "OK"
+    capture = state.active
+    state.active = state.user  # the user went back to their project and pressed play
+    state.playing = True
+    assert handlers.CAPTURE_OPEN("VST3: A (B)") == "ERR\tBUSY"
+    assert state.active.name == "user" and len(capture.tracks) == 0  # their view wasn't pulled away
+    assert handlers.CAPTURE_END() == "ERR\tBUSY" and capture.alive
+    state.playing = False
+    assert handlers.CAPTURE_OPEN("VST3: A (B)") == "OK"
+    assert handlers.CAPTURE_END() == "OK" and not capture.alive
+
+
+def test_capture_end_never_closes_a_tab_that_isnt_the_capture_tab(lua):
+    handlers, state = lua
+    handlers.CAPTURE_BEGIN()
+    state.api.SelectProjectInstance = lambda p: None  # switching tabs silently fails
+    state.active = state.user
+    assert handlers.CAPTURE_END() == "ERR\tTAB_NOT_ACTIVE"
+    assert state.user.alive and len(state.user.tracks) == 1
+
+
+def test_add_during_a_capture_goes_to_the_tab_the_user_is_in(lua):
+    handlers, state = lua
+    handlers.CAPTURE_BEGIN()
+    state.api.Main_OnCommand(40859, 0)  # the user opens another project tab of their own
+    other = state.active
+    state.api.InsertTrackAtIndex(0, False)
+    other.tracks[1].selected = True
+    other.tracks[1].name = "Bass"
+    assert handlers.ADD("VST3: X (Y)") == "OK\tBass"
+    assert list(other.tracks[1].fx.values()) == ["VST3: X (Y)"] and len(state.user.tracks[1].fx) == 0
+
+
+def test_the_same_command_never_runs_twice(lua, tmp_path):
+    handlers, state = lua
+    line = "42" + chr(9) + "ADD" + chr(9) + "VST3: X (Y)"
+    state.handle(line)
+    state.handle(line)  # e.g. REAPER couldn't delete the command file in time
+    assert list(state.user.tracks[1].fx.values()) == ["VST3: X (Y)"]
+
+
+def test_open_only_if_saved_is_checked_as_it_opens(lua):
+    handlers, state = lua
+    handlers.CAPTURE_BEGIN()
+    state.user.dirty = True  # e.g. a take recorded while Ordel waited for playback to stop
+    assert handlers.CAPTURE_OPEN("CLAP: X (Y)" + chr(9) + "saved") == "ERR\tUNSAVED"
+    assert handlers.CAPTURE_OPEN("VST: ReaComp (Cockos)") == "OK"  # safe plugins don't need it

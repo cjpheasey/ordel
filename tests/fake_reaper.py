@@ -7,10 +7,11 @@ from pathlib import Path
 
 class FakeReaper:
     def __init__(self, bridge_dir: Path, replies: dict[str, str] | None = None, die_on: str | None = None,
-                 stall_after_open: float = 0.0):
+                 stall_after_open: float = 0.0, delays: dict[str, float] | None = None):
         self.dir = Path(bridge_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.replies = replies or {}
+        self.delays = delays or {}
         self.received: list[tuple[str, str]] = []
         self.die_on = die_on  # simulate REAPER crashing when this plugin is opened
         self.dead = False
@@ -35,8 +36,15 @@ class FakeReaper:
                 if self.die_on and verb == "CAPTURE_OPEN" and self.die_on in arg:
                     self.dead = True
                     continue
+                reply = self.replies.get(verb, "OK")
+                if callable(reply):  # depends on what was asked
+                    reply = reply(arg)
+                if isinstance(reply, list):  # one reply per call; the last one repeats
+                    reply = reply.pop(0) if len(reply) > 1 else reply[0]
+                if verb in self.delays:  # busy inside REAPER, e.g. a heavy plugin loading
+                    time.sleep(self.delays[verb])
                 tmp = self.dir / "response.tmp"
-                tmp.write_text(f"{cid}\t{self.replies.get(verb, 'OK')}\t".rstrip("\t") + "\n", encoding="utf-8")
+                tmp.write_text(f"{cid}\t{reply}\t".rstrip("\t") + "\n", encoding="utf-8")
                 os.replace(tmp, self.dir / "response.txt")
                 if verb == "CAPTURE_OPEN" and self.stall_after_open:
                     self._quiet_until = time.time() + self.stall_after_open
