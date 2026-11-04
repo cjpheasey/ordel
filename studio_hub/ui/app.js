@@ -393,12 +393,12 @@ function showSheet(kind) {
 
 /* ---------- toasts ---------- */
 
-function toast(text, warn = false) {
+function toast(text, warn = false, ms = 2600) {
   const el = document.createElement("div");
   el.className = `toast${warn ? " warn" : ""}`;
   el.innerHTML = `${icon(warn ? "alert" : "check")}<span>${esc(text)}</span>`;
   $("#toasts").append(el);
-  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, 2600);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, ms);
 }
 
 const SEND_ERRORS = {
@@ -418,7 +418,8 @@ async function load() {
   }
   const cap = S.data.capture;
   if (S.wasCapturing && !cap.running) {
-    if (cap.crashed) toast(`REAPER closed while opening ${cap.crashed}. It will be skipped next time.`, true);
+    if (cap.crashed) toast(`REAPER closed while opening ${cap.crashed}. Reopen REAPER, then press Capture missing to finish the rest. ${cap.crashed} will be skipped.`, true, 12000);
+    else if (cap.needs_save) toast(`Save your project in REAPER, then press Capture missing for ${plural(cap.needs_save, "more plugin")}. Those can't be opened apart from REAPER, so Ordel only opens them once your work is saved.`, true, 12000);
     else if (cap.needs_reaper) toast(`${plural(cap.needs_reaper, "plugin")} need REAPER open to capture. Open REAPER and capture again.`, true);
     else if (cap.error === "not_connected") toast("Capture stopped: REAPER disconnected", true);
     else if (cap.error === "BUSY") toast("Stop playback in REAPER, then capture again", true);

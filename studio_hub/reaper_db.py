@@ -40,9 +40,14 @@ def _norm_file(name: str) -> str:
     return re.sub(r"[^a-z0-9.]", "_", name.lower())
 
 
-def vst3_roots(reaper_dir: Path) -> list[Path]:
-    """Folders to look for VST3 files in: the standard one plus REAPER's own plug-in paths."""
-    paths = [os.path.expandvars(r"%COMMONPROGRAMFILES%\VST3")]
+# Where REAPER looks when the user never changed its plug-in paths.
+_DEFAULT_PATHS = [r"%COMMONPROGRAMFILES%\VST3", r"%PROGRAMFILES%\VSTPlugins", r"%PROGRAMFILES%\Steinberg\VSTPlugins",
+                  r"%COMMONPROGRAMFILES%\VST2", r"%COMMONPROGRAMFILES%\Steinberg\VST2"]
+
+
+def plugin_roots(reaper_dir: Path) -> list[Path]:
+    """Folders to look for plugin files in: the standard ones plus REAPER's own plug-in paths."""
+    paths = list(_DEFAULT_PATHS)
     ini = _read_ini(Path(reaper_dir) / "reaper.ini")
     section = next((s for s in ini.sections() if s.lower() == "reaper"), None)  # REAPER writes '[reaper]'
     if section and ini.has_option(section, "vstpath64"):
@@ -55,20 +60,20 @@ def vst3_roots(reaper_dir: Path) -> list[Path]:
     return out
 
 
-def vst3_index(roots: list[Path]) -> dict[str, Path]:
-    """Normalised file name -> path of every .vst3 (file or bundle folder) under the roots."""
+def plugin_files(roots: list[Path]) -> dict[str, Path]:
+    """Normalised file name -> path of every .vst3 (file or bundle folder) and VST2 .dll under the roots."""
     index: dict[str, Path] = {}
     for root in roots:
         for folder, dirs, files in os.walk(root):
             for name in dirs + files:
-                if name.lower().endswith(".vst3"):
+                if name.lower().endswith((".vst3", ".dll")):
                     index.setdefault(_norm_file(name), Path(folder) / name)
             dirs[:] = [d for d in dirs if not d.lower().endswith(".vst3")]  # don't descend into bundles
     return index
 
 
-def find_vst3(key: str, roots: list[Path], index: dict[str, Path] | None = None) -> Path | None:
-    return (index if index is not None else vst3_index(roots)).get(_norm_file(key.split("<", 1)[0]))
+def find_plugin_file(key: str, roots: list[Path], index: dict[str, Path] | None = None) -> Path | None:
+    return (index if index is not None else plugin_files(roots)).get(_norm_file(key.split("<", 1)[0]))
 
 
 def _read_ini(path: Path) -> configparser.RawConfigParser:

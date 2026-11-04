@@ -1,4 +1,5 @@
 """Takes a picture of every plugin by opening it in REAPER's capture tab and grabbing its window."""
+import contextlib
 import logging
 import threading
 import time
@@ -23,7 +24,8 @@ def _reaper_pids() -> set[int]:
             win32api.CloseHandle(handle)
         except Exception:
             continue
-        if name.lower().endswith("\\reaper.exe"):
+        exe = name.lower().rsplit("\\", 1)[-1]
+        if exe == "reaper.exe" or exe.startswith("reaper_host"):  # reaper_host64.exe runs bridged plugins
             pids.add(pid)
     return pids
 
@@ -34,10 +36,16 @@ def title_matches(title: str, name: str) -> bool:
 
 
 def window_matches(title: str, add_name: str | None, name: str) -> bool:
-    """REAPER's floating FX window, or a plugin's own window titled exactly its name (ReaNINJAM).
+    """REAPER's floating FX window, a bridged plugin's window ('FabFilter Pro-Q 3 (x64 bridged)'), or a
+    plugin's own window titled exactly its name (ReaNINJAM).
 
     add_name=None looks for the plugin's own window only."""
-    return (add_name is not None and title_matches(title, add_name)) or title.strip() == name
+    if add_name is not None:
+        flat = " ".join(title.lower().split())
+        core = " ".join(name.lower().split(" (")[0].split())  # without '(32 out)' style suffixes
+        if title_matches(title, add_name) or (flat.endswith("bridged)") and flat.startswith(core + " (")):
+            return True
+    return title.strip() == name
 
 
 def close_own_window(hwnd: int, name: str) -> None:
@@ -57,9 +65,10 @@ def find_plugin_window(name: str | None, timeout: float = 15.0, plugin_name: str
     import win32gui
     import win32process
 
-    pids = _reaper_pids()
+    # shortcut: the same plugin open bridged in the user's own project would also match; fine while rare.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        pids = _reaper_pids()  # each time: a bridged plugin's host process may start after we begin looking
         found = []
 
         def visit(hwnd, _):
@@ -202,7 +211,7 @@ def _screen_grab(hwnd: int, area: Callable[[int], tuple] = _editor_rect) -> Imag
 
 class CaptureRunner:
     def __init__(self, bridge, library, snapshots_dir: Path, plugins_fn: Callable,
-                 find_window=find_plugin_window, grab=grab_window, helper=None, grab_own=None):
+                 find_window=find_plugin_window, grab=grab_window, helper=None, grab_own=None, isolate=None):
         self.bridge = bridge
         self.library = library
         self.snapshots_dir = Path(snapshots_dir)
@@ -211,6 +220,8 @@ class CaptureRunner:
         self.grab = grab
         # helper(plugin, out) -> 'ok' | 'failed' | 'unsupported' | 'crashed' | 'hung', or None if it can't take it
         self.helper = helper
+        # isolate(plugin) -> context giving True when the plugin runs where it can't take REAPER down
+        self.isolate = isolate or (lambda plugin: contextlib.nullcontext(True))
         self.close_window = close_own_window
         # A plugin's own window has no REAPER strip to trim, so it keeps its whole contents.
         self.grab_own = grab_own or (lambda hwnd, out: grab_window(hwnd, out, area=client_rect))
@@ -219,7 +230,8 @@ class CaptureRunner:
         self._resume.set()
         self._cancel = threading.Event()
         self._status = {"running": False, "paused": False, "done": 0, "total": 0,
-                        "current": None, "failed": 0, "error": None, "crashed": None, "needs_reaper": 0}
+                        "current": None, "failed": 0, "error": None, "crashed": None, "needs_reaper": 0,
+                        "needs_save": 0}
         self.open_timeout = 20.0
         self.crash_grace = 10.0  # REAPER can go quiet for seconds while a heavy plugin loads
 
@@ -239,7 +251,7 @@ class CaptureRunner:
             todo = [p for p in plugins if p.id in wanted]
         self._cancel.clear()
         self._status.update(running=True, done=0, total=len(todo), current=None, failed=0, error=None,
-                            crashed=None, needs_reaper=0)
+                            crashed=None, needs_reaper=0, needs_save=0)
         self._thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
         self._thread.start()
 
@@ -279,7 +291,12 @@ class CaptureRunner:
                         self._status["needs_reaper"] += 1  # left as is, to capture once REAPER is open
                         self._status["done"] += 1
                         continue
-                    result = self._capture_one(plugin)
+                    with self.isolate(plugin) as safe:
+                        if not safe and not self._work_saved():
+                            self._status["needs_save"] += 1  # left as is, to capture once the work is saved
+                            self._status["done"] += 1
+                            continue
+                        result = self._capture_one(plugin)
                     if result != "ok" and self._reaper_gone():
                         result = "crashed"  # REAPER went down while this plugin was open
                         session = False
@@ -303,6 +320,11 @@ class CaptureRunner:
         if result in ("crashed", "hung"):
             return "crashed"  # it would likely take REAPER down too, so don't try it there
         return result if result in ("ok", "failed") else None
+
+    def _work_saved(self) -> bool:
+        """A plugin that can't be isolated could crash REAPER, so only open it when nothing would be lost."""
+        ok, detail = self.bridge.send("CHECK_SAVED")
+        return ok or detail == "UNKNOWN_VERB"  # an older bridge can't tell; behave as before
 
     def _reaper_gone(self) -> bool:
         deadline = time.monotonic() + self.crash_grace

@@ -68,18 +68,20 @@ def test_plugin_keeps_reaper_file_key():
     assert ps["IR-L Mono"].key == "WaveShell1_VST3_14.12_x64.vst3<1588611046"
 
 
-def test_find_vst3_matches_reaper_key_in_subfolders(tmp_path):
-    from studio_hub.reaper_db import find_vst3
+def test_find_plugin_file_matches_reaper_key_in_subfolders(tmp_path):
+    from studio_hub.reaper_db import find_plugin_file as find_vst3
     (tmp_path / "VST3" / "FabFilter" / "FabFilter Micro.vst3").mkdir(parents=True)  # bundle folder
     (tmp_path / "VST3" / "WaveShell1-VST3 14.12_x64.vst3").write_bytes(b"")          # single file
+    (tmp_path / "VST3" / "Ampeg SVTVR Classic.dll").write_bytes(b"")                # VST2
     roots = [tmp_path / "VST3", tmp_path / "missing"]
     assert find_vst3("FabFilter_Micro.vst3", roots) == tmp_path / "VST3" / "FabFilter" / "FabFilter Micro.vst3"
     assert find_vst3("WaveShell1_VST3_14.12_x64.vst3<1588611046", roots) == tmp_path / "VST3" / "WaveShell1-VST3 14.12_x64.vst3"
+    assert find_vst3("Ampeg_SVTVR_Classic.dll", roots) == tmp_path / "VST3" / "Ampeg SVTVR Classic.dll"
     assert find_vst3("Nope.vst3", roots) is None
 
 
-def test_vst3_roots_read_from_reaper_ini(tmp_path, monkeypatch):
-    from studio_hub.reaper_db import vst3_roots
+def test_plugin_roots_read_from_reaper_ini(tmp_path, monkeypatch):
+    from studio_hub.reaper_db import plugin_roots as vst3_roots
     monkeypatch.setenv("COMMONPROGRAMFILES", str(tmp_path / "Common"))
     (tmp_path / "reaper.ini").write_text(r"[reaper]" "\n" r"vstpath64=%COMMONPROGRAMFILES%\VST3;D:\Plugins" "\n")
     roots = vst3_roots(tmp_path)

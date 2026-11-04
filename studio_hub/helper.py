@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .reaper_db import find_vst3, vst3_index, vst3_roots
+from .reaper_db import find_plugin_file, plugin_files, plugin_roots
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class HelperCapture:
     """CaptureRunner's helper: VST3 plugins whose file can be found open in a throwaway process."""
 
     def __init__(self, reaper_dir: Path, timeout: float = 30.0):
-        self.roots = vst3_roots(reaper_dir)
+        self.roots = plugin_roots(reaper_dir)
         self.timeout = timeout
         self._index: dict[str, Path] | None = None  # shortcut: built once per app run; plugins added later use REAPER
 
@@ -108,8 +108,8 @@ class HelperCapture:
         if plugin.format != "VST3":
             return None
         if self._index is None:
-            self._index = vst3_index(self.roots)
-        path = find_vst3(plugin.key, self.roots, self._index)
+            self._index = plugin_files(self.roots)
+        path = find_plugin_file(plugin.key, self.roots, self._index)
         if path is None:
             return None
         name = plugin.name if "<" in plugin.key else None  # one file holding many plugins, e.g. Waves shells

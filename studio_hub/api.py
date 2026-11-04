@@ -125,6 +125,15 @@ class Api:
                 pass
         return {"ok": True, "installed": True}
 
+    def refresh_bridge(self) -> None:
+        """After an update, swap in the new REAPER script; a running REAPER switches to it straight away."""
+        if not (self.bridge.installed(self.reaper_dir) and self.bridge.outdated(self.reaper_dir)):
+            return
+        if self.bridge.connected():
+            self.install_bridge()
+        else:
+            self.bridge.install(self.reaper_dir)  # REAPER loads it next time it starts; don't launch REAPER
+
     def window(self, action: str) -> dict:
         edge = action.removeprefix("resize-")
         if action.startswith("resize-") and edge in ("n", "s", "e", "w", "ne", "nw", "se", "sw"):

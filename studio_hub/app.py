@@ -19,6 +19,7 @@ from .bridge import ReaperBridge
 from .capture import CaptureRunner
 from .helper import HelperCapture
 from .hotkey import HotkeyListener
+from .isolation import Isolation
 from .library import Library
 from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
 from .server import make_server
@@ -88,12 +89,14 @@ class App:
         self.library = Library(data_dir() / "library.json")
         self.bridge = ReaperBridge(bridge_dir())
         self.capture = CaptureRunner(self.bridge, self.library, snapshots_dir(), lambda: self.api.plugins,
-                                     helper=HelperCapture(reaper_dir()))
+                                     helper=HelperCapture(reaper_dir()),
+                                     isolate=Isolation(reaper_dir(), data_dir()))
         self.api = Api(reaper_dir(), self.library, self.bridge, self.capture, {
             "show": self.show, "hide": self.hide, "minimize": self.minimize, "quit": self.quit,
             "resize": self.resize,
             "pick_image": self.pick_image, "set_hotkey": self.set_hotkey,
         })
+        self.api.refresh_bridge()
         self.server = make_server(self.api, resource("ui"), snapshots_dir())
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
         self.window: webview.Window | None = None

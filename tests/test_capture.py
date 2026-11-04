@@ -274,6 +274,46 @@ def test_reaper_session_only_opens_when_a_plugin_needs_it(tmp_path):
         reaper.stop()
 
 
+def test_bridged_plugin_window_is_matched():
+    from studio_hub.capture import window_matches
+    assert window_matches("FabFilter Pro-Q 3 (x64 bridged)", "VST3: FabFilter Pro-Q 3 (FabFilter)", "FabFilter Pro-Q 3")
+    assert window_matches("Sitala  (x64 bridged)", "VST3i: Sitala (Decomposer) (32 out)", "Sitala (32 out)")
+    assert not window_matches("FabFilter Pro-Q 3 (x64 bridged)", "VST3: FabFilter Pro (FabFilter)", "FabFilter Pro")
+
+
+def unsafe(plugin):
+    """Stands in for Isolation when nothing can be moved out of REAPER."""
+    import contextlib
+    return contextlib.nullcontext(plugin.vendor == "Cockos")
+
+
+def test_plugin_that_cant_be_isolated_waits_for_saved_work(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    reaper.replies["CHECK_SAVED"] = "ERR\tUNSAVED"
+    runner.isolate = unsafe
+    try:
+        runner.start()
+        wait_done(runner)
+        opened = reaper_opened(reaper)
+        assert opened and all("Cockos" in a for a in opened)
+        others = [p for p in plugins if p.vendor != "Cockos"]
+        assert runner.status()["needs_save"] == len(others)
+        assert all(lib.capture_status(p.id) == "none" for p in others)  # kept for next time
+    finally:
+        reaper.stop()
+
+
+def test_plugin_that_cant_be_isolated_opens_once_work_is_saved(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    runner.isolate = unsafe
+    try:
+        runner.start()
+        wait_done(runner)
+        assert len(reaper_opened(reaper)) == len(plugins) and runner.status()["needs_save"] == 0
+    finally:
+        reaper.stop()
+
+
 def test_plugin_with_its_own_window_is_matched_by_exact_name():
     from studio_hub.capture import window_matches
     assert window_matches("VST3: The Klone  (Fazertone) - Track 1", "VST3: The Klone (Fazertone)", "The Klone")

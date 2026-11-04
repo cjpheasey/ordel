@@ -83,6 +83,17 @@ function handlers.CAPTURE_BEGIN()
   return "OK"
 end
 
+-- Before opening a plugin that can't run in its own process: could a crash lose the user's work?
+function handlers.CHECK_SAVED()
+  local i = 0
+  while true do
+    local proj = reaper.EnumProjects(i)
+    if not proj then return "OK" end
+    if proj ~= cap.proj and reaper.IsProjectDirty(proj) ~= 0 then return "ERR\tUNSAVED" end
+    i = i + 1
+  end
+end
+
 function handlers.CAPTURE_OPEN(name)
   if not session_alive() then return "ERR\tNO_SESSION" end
   close_capture_track()

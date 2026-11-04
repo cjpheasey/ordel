@@ -15,7 +15,12 @@ P.user.tracks[1] = { name = "Vocals", fx = {}, selected = true }
 reaper = {
   GetExtState = function() return "" end, SetExtState = function() end, atexit = function() end,
   defer = function() end, time_precise = function() return 0 end,
-  EnumProjects = function(i) return P.active end,
+  EnumProjects = function(i)
+    if i < 0 then return P.active end
+    local n = 0
+    for _, p in ipairs(P.projects) do if p.alive then if n == i then return p end n = n + 1 end end
+  end,
+  IsProjectDirty = function(p) return p.dirty and 1 or 0 end,
   ValidatePtr = function(p) return type(p) == "table" and p.alive == true end,
   ValidatePtr2 = function(p, t) return type(p) == "table" and p.alive == true and t ~= nil end,
   SelectProjectInstance = function(p) if p.alive then P.active = p end end,
@@ -117,6 +122,15 @@ def test_capture_open_refuses_if_capture_tab_not_active(lua):
     state.active = state.user
     assert handlers.CAPTURE_OPEN("VST3: A (B)").startswith("ERR")
     assert len(state.user.tracks) == 1
+
+
+def test_check_saved_ignores_ordels_own_capture_tab(lua):
+    handlers, state = lua
+    handlers.CAPTURE_BEGIN()
+    state.active.dirty = True  # the capture tab always has changes
+    assert handlers.CHECK_SAVED() == "OK"
+    state.user.dirty = True
+    assert handlers.CHECK_SAVED() == "ERR\tUNSAVED"
 
 
 def test_capture_refuses_while_playing(lua):

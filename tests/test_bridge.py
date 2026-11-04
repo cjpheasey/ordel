@@ -62,3 +62,11 @@ def test_install_creates_startup_when_missing(tmp_path):
     reaper = tmp_path / "reaper"
     ReaperBridge(tmp_path / "bridge").install(reaper)
     assert "-- studio-hub" in (reaper / "Scripts" / "__startup.lua").read_text()
+
+
+def test_script_from_an_older_ordel_is_outdated(tmp_path):
+    bridge = ReaperBridge(tmp_path / "bridge")
+    script = bridge.install(tmp_path / "reaper")
+    assert not bridge.outdated(tmp_path / "reaper")
+    script.write_text("-- older bridge", encoding="utf-8")
+    assert bridge.outdated(tmp_path / "reaper")

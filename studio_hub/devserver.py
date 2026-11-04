@@ -8,6 +8,7 @@ from .api import Api
 from .bridge import ReaperBridge
 from .capture import CaptureRunner
 from .helper import HelperCapture
+from .isolation import Isolation
 from .library import Library
 from .paths import bridge_dir, data_dir, reaper_dir, resource, snapshots_dir
 from .server import make_server
@@ -17,7 +18,8 @@ def main() -> None:
     library = Library(data_dir() / "library.json")
     bridge = ReaperBridge(bridge_dir())
     api = None
-    capture = CaptureRunner(bridge, library, snapshots_dir(), lambda: api.plugins, helper=HelperCapture(reaper_dir()))
+    capture = CaptureRunner(bridge, library, snapshots_dir(), lambda: api.plugins, helper=HelperCapture(reaper_dir()),
+                            isolate=Isolation(reaper_dir(), data_dir()))
     noop = lambda *a: None
     api = Api(reaper_dir(), library, bridge, capture,
               {"hide": noop, "minimize": noop, "quit": noop, "resize": noop, "pick_image": noop, "set_hotkey": lambda c: True})

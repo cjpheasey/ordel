@@ -54,11 +54,21 @@ class ReaperBridge:
         return self.script_path(reaper_dir).exists() and startup.exists() and MARKER in startup.read_text(
             encoding="utf-8", errors="replace")
 
+    def _script_text(self) -> str:
+        source = resource("reaper/studio_hub_bridge.lua").read_text(encoding="utf-8")
+        return source.replace(PLACEHOLDER, f"[==[{self.dir}]==]")
+
+    def outdated(self, reaper_dir: Path) -> bool:
+        """The installed script is from an older Ordel."""
+        try:
+            return self.script_path(reaper_dir).read_text(encoding="utf-8") != self._script_text()
+        except OSError:
+            return False
+
     def install(self, reaper_dir: Path) -> Path:
         script = self.script_path(reaper_dir)
         script.parent.mkdir(parents=True, exist_ok=True)
-        source = resource("reaper/studio_hub_bridge.lua").read_text(encoding="utf-8")
-        script.write_text(source.replace(PLACEHOLDER, f"[==[{self.dir}]==]"), encoding="utf-8")
+        script.write_text(self._script_text(), encoding="utf-8")
 
         startup = script.parent.parent / "__startup.lua"
         existing = startup.read_text(encoding="utf-8", errors="replace") if startup.exists() else ""
