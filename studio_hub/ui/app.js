@@ -37,15 +37,18 @@ function inView(p, view) {
   return p.category === view.slice(4);
 }
 
-// In a developer, chips narrow by category; in a category, by developer.
+// In a category, chips narrow by developer; everywhere else they have chips (a developer, Favourites,
+// Recently used) they narrow by category.
+const chipsByCategory = () => !S.view.startsWith("cat:");
+
 function chipMatches(p) {
   if (!S.chip) return true;
-  return S.view.startsWith("dev:") ? p.category === S.chip : devOf(p) === S.chip;
+  return chipsByCategory() ? p.category === S.chip : devOf(p) === S.chip;
 }
 
 function chipOptions() {
-  if (!S.view.startsWith("dev:") && !S.view.startsWith("cat:")) return [];
-  const byDev = S.view.startsWith("dev:");
+  if (S.view === "all") return [];  // the sidebar already lists every category
+  const byDev = chipsByCategory();
   const counts = new Map();
   for (const p of S.data.plugins.filter((x) => inView(x, S.view))) {
     const key = byDev ? p.category : devOf(p);
@@ -157,7 +160,7 @@ function renderChips(total) {
   const el = $("#chips");
   el.hidden = options.length < 2;  // nothing to narrow down to
   if (el.hidden) return;
-  const byDev = S.view.startsWith("dev:");
+  const byDev = chipsByCategory();
   const chip = (key, label, n, lead = "") =>
     `<button class="chip" data-chip="${esc(key)}" aria-pressed="${(S.chip || "") === key}">${lead}${esc(label)} <b>${n}</b></button>`;
   setHtml(el, chip("", "All", total) + options.map((o) =>
