@@ -96,3 +96,58 @@ def test_developer_names_are_tidied_for_display():
     assert tidy_developer("Native Instruments GmbH") == "Native Instruments"
     assert tidy_developer("Plugin Alliance") == "Plugin Alliance"
     assert tidy_developer("") == ""
+
+
+def make(name, vendor="FabFilter", fmt="VST3"):
+    from studio_hub.reaper_db import Plugin
+    return Plugin(f"id-{name}", name, vendor, fmt, False, f"{fmt}: {name} ({vendor})")
+
+
+def test_variant_label():
+    from studio_hub.reaper_db import variant_label
+    assert variant_label("FabFilter Pro-C 2 (Mono)") == ("FabFilter Pro-C 2", "Mono")
+    assert variant_label("FabFilter Volcano 2 (Mono SC)") == ("FabFilter Volcano 2", "Mono sidechain")
+    assert variant_label("FabFilter Timeless 2 (SC)") == ("FabFilter Timeless 2", "Sidechain")
+    assert variant_label("Sitala (32 out)") == ("Sitala", "32 outputs")
+    assert variant_label("ReaStream (8ch)") == ("ReaStream", "8 channels")
+    assert variant_label("FabFilter Pro-Q 3") == ("FabFilter Pro-Q 3", "Stereo")
+    assert variant_label("CLA-76 Mono") == ("CLA-76", "Mono")  # Waves names versions without brackets
+    assert variant_label("C1 comp Stereo") == ("C1 comp", "Stereo")
+
+
+def test_waves_style_versions_are_grouped_but_a_lone_one_keeps_its_name():
+    from studio_hub.reaper_db import group_variants
+    g, = group_variants([make("CLA-76 Mono", "Waves"), make("CLA-76 Stereo", "Waves")])
+    assert g.name == "CLA-76" and g.variant == "Stereo" and [v.variant for v in g.variants] == ["Mono"]
+    lone, = group_variants([make("IR-L Mono", "Waves")])
+    assert lone.name == "IR-L Mono" and lone.variants == []
+
+
+def test_versions_are_grouped_under_the_stereo_one():
+    from studio_hub.reaper_db import group_variants
+    plugins = [make("FabFilter Pro-C 2 (Mono)"), make("FabFilter Pro-C 2"), make("FabFilter Pro-Q 3"),
+               make("FabFilter Pro-Q 4")]
+    groups = group_variants(plugins)
+    assert sorted(g.name for g in groups) == ["FabFilter Pro-C 2", "FabFilter Pro-Q 3", "FabFilter Pro-Q 4"]
+    proc = next(g for g in groups if g.name == "FabFilter Pro-C 2")
+    assert proc.variant == "Stereo" and [v.variant for v in proc.variants] == ["Mono"]
+    assert proc.id == "id-FabFilter Pro-C 2"  # existing data stays attached
+    assert next(g for g in groups if g.name == "FabFilter Pro-Q 3").variants == []
+
+
+def test_group_without_a_plain_version_is_named_by_its_base():
+    from studio_hub.reaper_db import group_variants
+    g, = group_variants([make("FabFilter Volcano 2 (SC)"), make("FabFilter Volcano 2 (Mono)")])
+    assert g.name == "FabFilter Volcano 2" and g.variant == "Mono" and [v.variant for v in g.variants] == ["Sidechain"]
+
+
+def test_single_variant_is_not_grouped():
+    from studio_hub.reaper_db import group_variants
+    g, = group_variants([make("Creepy Piano 3 Lite (32 out)", "ESL", "VST")])
+    assert g.name == "Creepy Piano 3 Lite (32 out)" and g.variants == []
+
+
+def test_same_name_different_developer_is_not_grouped():
+    from studio_hub.reaper_db import group_variants
+    groups = group_variants([make("Comp", "Acme"), make("Comp (Mono)", "Other Co")])
+    assert sorted(g.name for g in groups) == ["Comp", "Comp (Mono)"] and all(not g.variants for g in groups)

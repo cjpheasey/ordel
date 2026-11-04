@@ -124,3 +124,93 @@ def test_appearance_settings_only_accept_known_values(tmp_path):
     s = Library(tmp_path / "l.json").settings
     assert (s["accent"], s["picture_fit"], s["density"], s["corners"], s["show_developer"]) == (
         "blue", "cover", "compact", "square", False)
+
+
+MAIN, MONO = "aaaaaaaaaaaa", "bbbbbbbbbbbb"
+
+
+def group():
+    main = Plugin(MAIN, "Comp", "Vendor", "VST3", False, "VST3: Comp (Vendor)", ["Dynamics"])
+    mono = Plugin(MONO, "Comp (Mono)", "Vendor", "VST3", False, "VST3: Comp (Mono) (Vendor)", ["Dynamics"],
+                  variant="Mono")
+    main.variants = [mono]
+    return main
+
+
+def test_group_lists_its_versions_main_first(tmp_path):
+    v, = Library(tmp_path / "l.json").view([group()])
+    assert v["variants"] == [{"id": MAIN, "label": "Stereo"}, {"id": MONO, "label": "Mono"}]
+    assert Library(tmp_path / "l.json").view([plugin()])[0]["variants"] == []
+
+
+def test_group_is_starred_if_any_version_was(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_favourite(MONO, True)
+    assert lib.view([group()])[0]["favourite"] is True
+
+
+def test_unstarring_a_group_unstars_every_version(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_favourite(MONO, True)
+    lib.set_favourite(MAIN, False, also=[MONO])
+    assert lib.view([group()])[0]["favourite"] is False
+
+
+def test_group_uses_a_versions_picture_when_main_has_none(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_capture(MONO, "ok")
+    v, = lib.view([group()])
+    assert v["shot_id"] == MONO and v["capture"] == "ok" and v["shot"] > 0
+    lib.set_capture(MAIN, "custom")
+    assert lib.view([group()])[0]["shot_id"] == MAIN
+
+
+def test_group_recent_use_is_the_latest_of_its_versions(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.mark_used(MONO)
+    assert lib.view([group()])[0]["last_used"] > 0
+
+
+def test_category_override_on_a_version_carries_to_the_group(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_category(MONO, "eq")
+    assert lib.view([group()])[0]["category"] == "eq"
+    lib.set_category(MAIN, "reverb", also=[MONO])
+    assert lib.view([group()])[0]["category"] == "reverb"
+    assert lib._plugins[MONO].get("category") is None
+
+
+def test_preferred_version_is_the_one_added_most(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    assert lib.view([group()])[0]["preferred"] == MAIN
+    lib.count_variant(MAIN, MONO)
+    lib.count_variant(MAIN, MONO)
+    lib.count_variant(MAIN, MAIN)
+    assert lib.view([group()])[0]["preferred"] == MONO
+
+
+def test_chain_meta_survives_reload_and_prunes_missing_files(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_chain_meta("file:Ordel/Vocal.RfxChain", order=1, return_track=False)
+    lib.set_chain_meta("file:Gone.RfxChain", order=2)
+    lib.set_chain_meta("built:abc", name="Drums", plugins=["VST: ReaEQ (Cockos)"])
+    lib.set_chain_meta("file:Ordel/Vocal.RfxChain", return_track=True)
+    lib.prune_chain_meta({"file:Ordel/Vocal.RfxChain"})
+    again = Library(tmp_path / "l.json")
+    assert again.chain_meta() == {"file:Ordel/Vocal.RfxChain": {"order": 1, "return_track": True},
+                                  "built:abc": {"name": "Drums", "plugins": ["VST: ReaEQ (Cockos)"]}}
+    again.remove_chain_meta("built:abc")
+    assert "built:abc" not in Library(tmp_path / "l.json").chain_meta()
+
+
+def test_bad_chain_meta_on_disk_is_ignored(tmp_path):
+    (tmp_path / "l.json").write_text(json.dumps({"chains": {"file:a": "nope", "file:b": {"order": 1}}}))
+    assert Library(tmp_path / "l.json").chain_meta() == {"file:b": {"order": 1}}
+
+
+def test_seen_plugins_are_remembered(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    assert lib.seen() is None  # never recorded: first run, or first run after updating
+    lib.mark_seen({"a"})
+    lib.mark_seen({"b"})
+    assert Library(tmp_path / "l.json").seen() == {"a", "b"}

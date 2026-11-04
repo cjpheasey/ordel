@@ -30,16 +30,39 @@ reaper = {
   end,
   Main_openProject = function() end,
   GetPlayStateEx = function(p) return P.playing and 1 or 0 end,
-  InsertTrackAtIndex = function(i) table.insert(P.active.tracks, 1, { name = "", fx = {} }); table.insert(P.inserted, P.active.name) end,
-  InsertTrackInProject = function(p, i) table.insert(p.tracks, 1, { name = "", fx = {} }); table.insert(P.inserted, p.name) end,
-  GetTrack = function(p, i) return p.tracks[i + 1] end,
+  InsertTrackAtIndex = function(i) table.insert(P.active.tracks, i + 1, { name = "", fx = {} }); table.insert(P.inserted, P.active.name) end,
+  InsertTrackInProject = function(p, i) p = (p == 0) and P.active or p; table.insert(p.tracks, i + 1, { name = "", fx = {} }); table.insert(P.inserted, p.name) end,
+  GetTrack = function(p, i) p = (p == 0) and P.active or p; return p.tracks[i + 1] end,
+  CountTracks = function(p) p = (p == 0) and P.active or p; return #p.tracks end,
+  CountSelectedTracks = function(p) p = (p == 0) and P.active or p; local n = 0; for _, t in ipairs(p.tracks) do if t.selected then n = n + 1 end end; return n end,
+  GetTrackStateChunk = function(tr) return true, tr.chunk or ('<TRACK\nNAME "' .. tr.name .. '"\n>\n') end,
+  SetTrackStateChunk = function(tr, s)
+    tr.chunk, tr.sets = s, (tr.sets or 0) + 1
+    tr.fx = {}
+    for name in s:gmatch('\n%s*<VST "([^"]+)"') do table.insert(tr.fx, name) end
+    return true
+  end,
+  TrackFX_GetCount = function(tr) return #tr.fx end,
+  TrackFX_CopyToTrack = function(src, i, dst, j, move)
+    if P.copy_fails then error("copy failed") end
+    table.insert(dst.fx, j + 1, src.fx[i + 1])
+  end,
+  SetTrackColor = function(tr, c) tr.color = c end,
+  ColorToNative = function(r, g, b) return r + g * 256 + b * 65536 end,
+  RecursiveCreateDirectory = function() return 1 end,
+  TrackList_AdjustWindows = function() end,
   DeleteTrack = function(tr) for _, p in ipairs(P.projects) do for i, t in ipairs(p.tracks) do if t == tr then table.remove(p.tracks, i) end end end end,
-  GetSelectedTrack = function(p, i) p = (p == 0) and P.active or p; for _, t in ipairs(p.tracks) do if t.selected then return t end end end,
+  GetSelectedTrack = function(p, i)
+    p = (p == 0) and P.active or p
+    local n = 0
+    for _, t in ipairs(p.tracks) do if t.selected then if n == i then return t end n = n + 1 end end
+  end,
   GetSetMediaTrackInfo_String = function(tr, k, v, set) if set then tr.name = v end return true, tr.name end,
   TrackFX_AddByName = function(tr, name) if name:find("Nope") then return -1 end table.insert(tr.fx, name); return #tr.fx - 1 end,
   TrackFX_Show = function() end,
   GetTrackName = function(tr) return true, tr.name end,
-  Undo_BeginBlock2 = function() end, Undo_EndBlock2 = function() end,
+  Undo_BeginBlock2 = function() P.undo_open = (P.undo_open or 0) + 1 end,
+  Undo_EndBlock2 = function() P.undo_open = P.undo_open - 1 end,
 }
 P.api = reaper
 return P
@@ -138,3 +161,126 @@ def test_capture_refuses_while_playing(lua):
     state.playing = True
     assert handlers.CAPTURE_BEGIN() == "ERR\tBUSY"
     assert len(state.projects) == 1
+
+
+CHAIN = ('BYPASS 0 0 0\n<VST "VST: ReaEQ (Cockos)" reaeq.dll 0 "" 1919247729<5653>\nZXE=\n>\nFLOATPOS 0 0 0 0\n'
+         'FXID {FILE-1}\nWAK 0 0\nBYPASS 0 0 0\n<VST "VST: ReaComp (Cockos)" reacomp.dll 0 "" 1919247213<5653>\nQUJD\n>\n'
+         'FLOATPOS 0 0 0 0\nFXID {FILE-2}\nWAK 0 0\n')
+INPUT_FX = ('<FXCHAIN_REC\nSHOW 0\nLASTSEL 0\nDOCKED 0\nBYPASS 0 0 0\n<VST "VST: ReaGate (Cockos)" reagate.dll 0 "" 1<56>\n'
+            'AA==\n>\nFLOATPOS 0 0 0 0\nFXID {REC}\nWAK 0 0\n>\n')
+TRACK_WITH_FX = ('<TRACK\nNAME "Vocals"\n' + INPUT_FX + '<FXCHAIN\nWNDRECT 0 0 0 0\nSHOW 0\nLASTSEL 0\nDOCKED 0\n' + CHAIN
+                 + '>\n<ITEM\nPOSITION 0\n>\n>\n')
+EQ_COMP = ["VST: ReaEQ (Cockos)", "VST: ReaComp (Cockos)"]
+
+
+def balanced(chunk):
+    lines = [l.strip() for l in chunk.splitlines()]
+    return sum(l.startswith("<") for l in lines) == sum(l == ">" for l in lines)
+
+
+def chain_file(tmp_path):
+    f = tmp_path / "Vocal.RfxChain"
+    f.write_text(CHAIN)
+    return f
+
+
+def fx(track):
+    return list(track.fx.values())
+
+
+def track_count(state):
+    return len(state.user.tracks)
+
+
+def test_save_writes_the_selected_tracks_fx_not_its_input_fx(lua, tmp_path):
+    handlers, state = lua
+    state.user.tracks[1].chunk = TRACK_WITH_FX
+    out = tmp_path / "saved.RfxChain"
+    assert handlers.CHAIN_SAVE(str(out)) == "OK\t2"
+    text = out.read_text()
+    assert text.startswith("BYPASS") and "ReaEQ" in text and "ReaComp" in text and "ReaGate" not in text
+    assert "WNDRECT" not in text and "SHOW 0" not in text and "POSITION" not in text
+
+
+def test_save_without_fx_says_so(lua, tmp_path):
+    handlers, state = lua
+    assert handlers.CHAIN_SAVE(str(tmp_path / "x.RfxChain")) == "ERR\tNO_FX"
+    state.user.tracks[1].chunk = '<TRACK\nNAME "Vocals"\n' + INPUT_FX + '>\n'  # input FX only
+    assert handlers.CHAIN_SAVE(str(tmp_path / "x.RfxChain")) == "ERR\tNO_FX"
+
+
+def test_apply_to_every_selected_track(lua, tmp_path):
+    handlers, state = lua
+    state.api.InsertTrackAtIndex(1, False)  # a second track in the user's project
+    state.user.tracks[2].selected = True
+    assert handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}") == "OK\t2"
+    assert fx(state.user.tracks[1]) == EQ_COMP and fx(state.user.tracks[2]) == EQ_COMP
+    assert track_count(state) == 2  # the temporary track is gone
+
+
+def test_apply_copies_fx_in_without_rewriting_the_track(lua, tmp_path):
+    handlers, state = lua
+    target = state.user.tracks[1]
+    target.fx[1] = "VSTi: Kontakt (NI)"  # already loaded: must not be reloaded
+    f = chain_file(tmp_path)
+    handlers.CHAIN_APPLY(f"track\tVocal\t{f}")
+    handlers.CHAIN_APPLY(f"track\tVocal\t{f}")
+    assert fx(target) == ["VSTi: Kontakt (NI)", *EQ_COMP, *EQ_COMP]
+    assert target.sets is None and track_count(state) == 1
+
+
+def test_temporary_chain_drops_fx_ids_so_reaper_makes_fresh_ones(lua, tmp_path):
+    handlers, state = lua
+    seen = []
+    original = state.api.SetTrackStateChunk
+    state.api.SetTrackStateChunk = lambda tr, s, undo=False: (seen.append(s), original(tr, s))[1]
+    handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}")
+    assert seen and "FXID" not in seen[0] and "<FXCHAIN" in seen[0] and balanced(seen[0])
+
+
+def test_apply_without_selected_track_says_so(lua, tmp_path):
+    handlers, state = lua
+    state.user.tracks[1].selected = False
+    assert handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}") == "ERR\tNO_TRACK"
+    assert handlers.CHAIN_ADD("track\tVocal\tVST: X (Y)") == "ERR\tNO_TRACK"
+    assert not state.undo_open  # no undo step left open
+
+
+def test_apply_missing_file_says_so(lua, tmp_path):
+    handlers, _ = lua
+    assert handlers.CHAIN_APPLY(f"track\tVocal\t{tmp_path / 'gone.RfxChain'}") == "ERR\tNO_FILE"
+
+
+def test_failed_apply_still_closes_the_undo_step_and_removes_the_temporary_track(lua, tmp_path):
+    handlers, state = lua
+    state.copy_fails = True
+    with pytest.raises(Exception):
+        handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}")
+    assert state.undo_open == 0 and track_count(state) == 1
+
+
+def test_return_mode_adds_a_named_track_and_reports_duplicates(lua, tmp_path):
+    handlers, state = lua
+    f = chain_file(tmp_path)
+    assert handlers.CHAIN_APPLY(f"return\tPlate\t{f}") == "OK\tNEW"
+    assert handlers.CHAIN_APPLY(f"return\tPlate\t{f}") == "OK\tEXISTS"  # a second Plate track is still added
+    names = [state.user.tracks[i].name for i in range(1, track_count(state) + 1)]
+    assert names == ["Vocals", "Plate", "Plate"]
+    assert state.user.tracks[2].color and fx(state.user.tracks[2]) == EQ_COMP
+    assert fx(state.user.tracks[1]) == []  # the selected track is left alone
+
+
+def test_chain_add_uses_add_by_name(lua):
+    handlers, state = lua
+    assert handlers.CHAIN_ADD("track\tDrums\tVST: A (B)\tVST3: C (D)") == "OK\t1"
+    assert fx(state.user.tracks[1]) == ["VST: A (B)", "VST3: C (D)"]
+    assert handlers.CHAIN_ADD("return\tVerb\tVST: R (S)") == "OK\tNEW"
+    assert fx(state.user.tracks[2]) == ["VST: R (S)"]
+
+
+def test_chain_verbs_never_touch_the_capture_tab(lua, tmp_path):
+    handlers, state = lua
+    handlers.CAPTURE_BEGIN()
+    capture = state.active
+    assert handlers.CHAIN_APPLY(f"track\tVocal\t{chain_file(tmp_path)}") == "OK\t1"
+    assert fx(state.user.tracks[1]) == EQ_COMP and len(capture.tracks) == 0 and track_count(state) == 1

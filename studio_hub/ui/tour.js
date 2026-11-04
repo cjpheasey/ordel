@@ -10,7 +10,7 @@ const TOUR_STEPS = [
   {
     target: "#nav-switch",
     title: "Browse your way",
-    body: () => "Switch between categories and developers. To move a plugin to another category, drag its card onto one.",
+    body: () => "Switch between categories and developers. Plugins with Mono or sidechain versions show once; pick the version in its details.",
   },
   {
     target: ".search",
@@ -21,6 +21,11 @@ const TOUR_STEPS = [
     target: ".card",
     title: "Add it to your track",
     body: () => "Double-click a plugin, or press Enter, to put it on the selected REAPER track. Click once to see its details.",
+  },
+  {
+    target: '.nav-item[data-view="chains"]',
+    title: "Chains in one click",
+    body: () => "Save the plugins on a REAPER track as a chain, then put them on any track, or on a new return track, with one click.",
   },
   {
     target: "#open-settings",

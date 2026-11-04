@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 from .categories import KEYS, resolve_category
@@ -57,6 +58,8 @@ class Library:
         self._lock = threading.RLock()
         self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self._plugins: dict[str, dict] = {}
+        self._chains: dict[str, dict] = {}  # Ordel's extras per chain: order, return_track, hidden, ...
+        self._seen: list[str] | None = None  # plugin ids Ordel has already shown; None until first recorded
         self._load()
 
     def _load(self) -> None:
@@ -66,6 +69,12 @@ class Library:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             settings = data.get("settings", {})
             plugins = data.get("plugins", {})
+            chains = data.get("chains", {})
+            seen = data.get("seen")
+            if isinstance(seen, list):
+                self._seen = [s for s in seen if isinstance(s, str)]
+            if isinstance(chains, dict):
+                self._chains = {k: v for k, v in chains.items() if isinstance(v, dict)}
             if isinstance(settings, dict):
                 self.settings.update({k: v for k, v in settings.items()
                                       if k in DEFAULT_SETTINGS and _valid_setting(k, v)})
@@ -77,8 +86,8 @@ class Library:
 
     def _save(self) -> None:
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"version": 1, "settings": self.settings, "plugins": self._plugins},
-                                  indent=1), encoding="utf-8")
+        tmp.write_text(json.dumps({"version": 1, "settings": self.settings, "plugins": self._plugins,
+                                   "chains": self._chains, "seen": self._seen}, indent=1), encoding="utf-8")
         os.replace(tmp, self.path)
 
     def _set(self, plugin_id: str, **fields) -> None:
@@ -92,13 +101,29 @@ class Library:
             self._save()
             return dict(self.settings)
 
-    def set_favourite(self, plugin_id: str, on: bool) -> None:
-        self._set(plugin_id, favourite=bool(on))
+    def _clear(self, ids: Iterable[str], field: str) -> None:
+        for other in ids:
+            self._plugins.get(other, {}).pop(field, None)
 
-    def set_category(self, plugin_id: str, key: str | None) -> None:
+    def set_favourite(self, plugin_id: str, on: bool, also: Iterable[str] = ()) -> None:
+        """also: the plugin's other versions, cleared so the group shows what the user just chose."""
+        with self._lock:
+            self._clear(also, "favourite")
+            self._set(plugin_id, favourite=bool(on))
+
+    def set_category(self, plugin_id: str, key: str | None, also: Iterable[str] = ()) -> None:
         if key is not None and key not in KEYS:
             raise ValueError(f"unknown category {key!r}")
-        self._set(plugin_id, category=key)
+        with self._lock:
+            self._clear(also, "category")
+            self._set(plugin_id, category=key)
+
+    def count_variant(self, group_id: str, variant_id: str) -> None:
+        """Remember which version gets added, so double-click picks the usual one."""
+        with self._lock:
+            counts = self._plugins.setdefault(group_id, {}).setdefault("variants", {})
+            counts[variant_id] = counts.get(variant_id, 0) + 1
+            self._save()
 
     def mark_used(self, plugin_id: str) -> None:
         self._set(plugin_id, last_used=time.time())
@@ -108,6 +133,40 @@ class Library:
             raise ValueError(f"unknown capture status {status!r}")
         self._set(plugin_id, capture=status, shot=time.time())
 
+    def seen(self) -> set[str] | None:
+        with self._lock:
+            return None if self._seen is None else set(self._seen)
+
+    def mark_seen(self, ids: set[str]) -> None:
+        with self._lock:
+            known = set(self._seen or [])
+            if self._seen is None or not ids <= known:
+                self._seen = sorted(known | ids)
+                self._save()
+
+    def chain_meta(self) -> dict[str, dict]:
+        with self._lock:
+            return {k: dict(v) for k, v in self._chains.items()}
+
+    def set_chain_meta(self, chain_id: str, **fields) -> None:
+        with self._lock:
+            self._chains.setdefault(chain_id, {}).update(fields)
+            self._save()
+
+    def remove_chain_meta(self, chain_id: str) -> None:
+        with self._lock:
+            if self._chains.pop(chain_id, None) is not None:
+                self._save()
+
+    def prune_chain_meta(self, existing_ids: set[str]) -> None:
+        """Forget extras of chain files that are gone; chains built in Ordel have no file to check."""
+        with self._lock:
+            gone = [k for k in self._chains if k.startswith("file:") and k not in existing_ids]
+            for k in gone:
+                del self._chains[k]
+            if gone:
+                self._save()
+
     def capture_status(self, plugin_id: str) -> str:
         return self._plugins.get(plugin_id, {}).get("capture", "none")
 
@@ -115,16 +174,27 @@ class Library:
         with self._lock:
             out = []
             for p in plugins:
-                state = self._plugins.get(p.id, {})
+                members = [p, *p.variants]
+                states = [self._plugins.get(m.id, {}) for m in members]
+                state = states[0]
                 auto = resolve_category(p.reaper_tags, p.name, p.instrument)
+                # The picture: the main version's, else the first version that has one.
+                pictured = next((i for i, s in enumerate(states) if s.get("capture") in ("ok", "custom")), 0)
+                counts = state.get("variants") or {}
+                ids = {m.id for m in members}
+                preferred = max((i for i in counts if i in ids), key=lambda i: counts[i], default=p.id)
                 out.append({
                     "id": p.id, "name": p.name, "vendor": p.vendor, "developer": tidy_developer(p.vendor),
                     "format": p.format,
                     "instrument": p.instrument, "alternates": p.alternates,
-                    "category": state.get("category") or auto, "category_auto": auto,
-                    "favourite": state.get("favourite", False),
-                    "last_used": state.get("last_used", 0),
-                    "capture": state.get("capture", "none"),
-                    "shot": state.get("shot", 0),
+                    "variants": [{"id": m.id, "label": m.variant} for m in members] if p.variants else [],
+                    "preferred": preferred,
+                    "category": next((s["category"] for s in states if s.get("category")), None) or auto,
+                    "category_auto": auto,
+                    "favourite": any(s.get("favourite", False) for s in states),
+                    "last_used": max(s.get("last_used", 0) for s in states),
+                    "capture": states[pictured].get("capture", "none"),
+                    "shot": states[pictured].get("shot", 0),
+                    "shot_id": members[pictured].id,
                 })
             return out

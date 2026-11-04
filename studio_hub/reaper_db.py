@@ -24,6 +24,58 @@ class Plugin:
     reaper_tags: list[str] = field(default_factory=list)
     alternates: list[str] = field(default_factory=list)
     key: str = ""  # REAPER's cache key, e.g. 'FabFilter_Micro.vst3' or 'WaveShell1_VST3_14.12_x64.vst3<1588611046'
+    variant: str = "Stereo"  # this version's label, e.g. 'Mono'
+    variants: list["Plugin"] = field(default_factory=list)  # the other versions shown under this one
+
+
+_VARIANT = re.compile(r"^(.*\S)\s+\((mono|stereo|sc|sidechain|mono sc|mono sidechain|(\d+) out|(\d+)ch)\)$",
+                      re.IGNORECASE)
+_BARE_VARIANT = re.compile(r"^(.*\S)\s+(mono|stereo)$", re.IGNORECASE)  # Waves: 'CLA-76 Mono'
+_LABELS = {"mono": "Mono", "stereo": "Stereo", "sc": "Sidechain", "sidechain": "Sidechain",
+           "mono sc": "Mono sidechain", "mono sidechain": "Mono sidechain"}
+_LABEL_ORDER = ["Stereo", "Mono", "Sidechain", "Mono sidechain"]
+
+
+def variant_label(name: str) -> tuple[str, str]:
+    """'FabFilter Pro-C 2 (Mono)' -> ('FabFilter Pro-C 2', 'Mono'); no recognised suffix means 'Stereo'."""
+    m = _VARIANT.match(name.strip())
+    if not m:
+        bare = _BARE_VARIANT.match(name.strip())
+        return (bare.group(1), _LABELS[bare.group(2).lower()]) if bare else (name, "Stereo")
+    suffix = m.group(2).lower()
+    if m.group(3):
+        return m.group(1), f"{m.group(3)} outputs"
+    if m.group(4):
+        return m.group(1), f"{m.group(4)} channels"
+    return m.group(1), _LABELS[suffix]
+
+
+def _variant_rank(label: str) -> tuple[int, int]:
+    if label in _LABEL_ORDER:
+        return _LABEL_ORDER.index(label), 0
+    return len(_LABEL_ORDER), int(label.split()[0])
+
+
+def group_variants(plugins: list[Plugin]) -> list[Plugin]:
+    """One plugin per set of versions (Stereo, Mono, Sidechain, multi-output), the stereo one in front."""
+    groups: dict[tuple[str, str], list[tuple[str, str, Plugin]]] = {}
+    for p in plugins:
+        base, label = variant_label(p.name)
+        groups.setdefault((base.lower(), p.vendor.lower()), []).append((base, label, p))
+    out = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(members[0][2])  # nothing to group: keep its full name, e.g. 'Sitala (32 out)'
+            continue
+        members.sort(key=lambda m: _variant_rank(m[1]))
+        base, label, main = members[0]
+        main.name, main.variant = base, label
+        main.variants = []
+        for _, other_label, other in members[1:]:
+            other.variant = other_label
+            main.variants.append(other)
+        out.append(main)
+    return out
 
 
 _COMPANY_SUFFIX = re.compile(r"[,\s]+(llc|inc|ltd|gmbh|co|corp|s\.?a\.?|b\.?v\.?)\.?$", re.IGNORECASE)
@@ -145,4 +197,4 @@ def load_plugins(reaper_dir: Path) -> list[Plugin]:
         keep.alternates = current.alternates + plugin.alternates + [other.add_name]
         keep.reaper_tags = keep.reaper_tags or other.reaper_tags
         best[dedupe] = keep
-    return sorted(best.values(), key=lambda p: p.name.lower())
+    return sorted(group_variants(list(best.values())), key=lambda p: p.name.lower())

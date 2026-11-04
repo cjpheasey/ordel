@@ -18,13 +18,14 @@ def make_server(api: Api, ui_dir: Path, snapshots_dir: Path, port: int = 0) -> T
     api.snapshots_dir = Path(snapshots_dir)
     posts = {
         "/api/refresh": lambda b: api.refresh(),
-        "/api/send": lambda b: api.send(b["id"]),
+        "/api/send": lambda b: api.send(b["id"], b.get("variant")),
         "/api/plugin": lambda b: api.update_plugin(b["id"], **{k: b[k] for k in ("favourite", "category") if k in b}),
         "/api/settings": lambda b: api.update_settings(**b),
         "/api/capture": lambda b: api.capture_action(b["action"], b.get("id")),
         "/api/custom-image": lambda b: api.custom_image(b["id"]),
         "/api/bridge/install": lambda b: api.install_bridge(),
         "/api/window": lambda b: api.window(b["action"]),
+        "/api/chain": lambda b: api.chain_action(**b),
     }
 
     class Handler(BaseHTTPRequestHandler):

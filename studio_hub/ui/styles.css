@@ -369,6 +369,11 @@ body[data-developer="off"] .sub .vendor { display: none; }
 .sub { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; min-width: 0; }
 .sub .tag { width: 8px; height: 8px; border-radius: 2px; }
 .sub .vendor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.versions { display: block; margin-top: 2px; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.version-pick { display: grid; gap: 6px; }
+.version-pick .k { font-size: 12px; color: var(--text-2); }
+.version-pick .seg { margin: 0; flex-wrap: wrap; }
+.version-pick .seg button { flex: 1 1 auto; padding: 0 10px; white-space: nowrap; }
 .fmt {
   margin-left: auto; flex: none;
   font-size: 10px; font-weight: 600; color: var(--text-3);
@@ -524,6 +529,9 @@ select option { background: var(--surface); color: var(--text); }
 }
 .toast .icon { color: #30d158; }
 .toast.warn .icon { color: #ff9f0a; }
+.toast.has-action { pointer-events: auto; }
+.toast-action { margin-left: 6px; padding: 2px 8px; border-radius: 6px; color: var(--accent); font-weight: 600; }
+.toast-action:hover { background: var(--hover); }
 .toast.out { opacity: 0; transition: opacity .25s; }
 
 /* First-run tour */
@@ -569,3 +577,65 @@ select option { background: var(--surface); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- new-plugin notice ---------- */
+.notice { display: flex; align-items: center; gap: 6px; margin: 0 24px 10px; padding: 2px 4px 2px 12px; width: fit-content;
+  border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font-size: 12.5px; }
+.notice .dot-sep { color: var(--text-3); }
+.notice .link { font-size: 12.5px; }
+.notice .icon-btn { width: 24px; height: 24px; }
+.notice .icon-btn .icon { width: 14px; height: 14px; }
+
+/* ---------- page help ---------- */
+.help { position: relative; display: inline-flex; align-self: center; }
+.help-btn { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--text-3); opacity: .55; }
+.help-btn .icon { width: 16px; height: 16px; }
+.help:hover .help-btn, .help-btn:focus-visible { opacity: 1; color: var(--text-2); }
+.help-pop { position: absolute; top: calc(100% + 8px); left: -8px; z-index: 40; width: 280px; padding: 10px 12px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); box-shadow: var(--shadow);
+  font: 400 12.5px/1.45 var(--font, inherit); color: var(--text); letter-spacing: 0; text-transform: none;
+  opacity: 0; visibility: hidden; transform: translateY(-2px); transition: opacity .12s, transform .12s, visibility .12s; pointer-events: none; }
+.help:hover .help-pop, .help-btn:focus + .help-pop { opacity: 1; visibility: visible; transform: none; }
+.sheet-head h2 { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- chains ---------- */
+.chain-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 12px; }
+.chain-tools .btn { height: 30px; }
+.save-chain { display: flex; gap: 8px; flex: 1; max-width: 460px; }
+.save-chain input, .chain-add input, .chain-title {
+  flex: 1; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit;
+}
+.grid.chain-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.chain-item { position: relative; }
+.chain-card { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 14px; text-align: left;
+  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border); }
+.chain-card:hover { background: color-mix(in srgb, var(--surface) 85%, var(--text) 6%); }
+.chain-item.selected .chain-card { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.chain-edit { position: absolute; top: 8px; right: 8px; }
+.strip { display: flex; gap: 6px; min-height: 48px; padding-right: 32px; }
+.thumb { width: 48px; height: 48px; flex: none; border-radius: 8px; overflow: hidden; background: var(--hover);
+  display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--text-3); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb.more { width: auto; padding: 0 8px; }
+.chain-meta { display: flex; flex-direction: column; min-width: 0; }
+.chain-meta .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain-meta .sub, .match .sub { display: inline; font-size: 12px; color: var(--text-3); }
+body[data-page="chains"] .size { visibility: hidden; }
+.chain-title { flex: none; height: 36px; font: 600 18px/1.2 var(--font-display); }
+.chain-detail .field label small { display: block; font-size: 11px; color: var(--text-3); }
+.chain-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.chain-row { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.chain-row .thumb { width: 40px; height: 40px; }
+.chain-row .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.chain-row .missing { font-size: 11px; color: #ff9f0a; }
+.chain-row.empty-row { color: var(--text-3); }
+.row-tools { display: flex; }
+.row-tools .icon-btn { width: 26px; height: 26px; }
+.icon.up { transform: rotate(-90deg); }
+.icon.down { transform: rotate(90deg); }
+.chain-add { display: flex; flex-direction: column; gap: 4px; }
+.chain-matches { list-style: none; margin: 0; padding: 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.match { display: block; width: 100%; padding: 6px 8px; border-radius: 6px; text-align: left; }
+.match:hover, .match:focus-visible { background: var(--hover); }
+.btn.danger:hover { color: #ff453a; }

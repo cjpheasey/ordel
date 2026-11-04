@@ -181,3 +181,74 @@ def test_window_resize_actions_are_validated(env):
     assert post(base + "/api/window", {"action": "resize-se"})[0] == 200
     assert post(base + "/api/window", {"action": "resize-up"})[0] == 400
     assert edges == ["se"]
+
+
+def test_send_adds_the_chosen_version_and_counts_it(env):
+    from studio_hub.reaper_db import Plugin
+    base, api, fake, hidden = env
+    main = Plugin("aaaaaaaaaaaa", "Comp", "Vendor", "VST3", False, "VST3: Comp (Vendor)")
+    mono = Plugin("bbbbbbbbbbbb", "Comp (Mono)", "Vendor", "VST3", False, "VST3: Comp (Mono) (Vendor)", variant="Mono")
+    main.variants = [mono]
+    api.plugins = [main]
+    assert post(base + "/api/send", {"id": main.id, "variant": mono.id})[1]["ok"] is True
+    assert fake.received[-1] == ("ADD", "VST3: Comp (Mono) (Vendor)")
+    v = find(api, "Comp")
+    assert v["preferred"] == mono.id and v["last_used"] > 0
+    assert post(base + "/api/send", {"id": main.id, "variant": "zzzzzzzzzzzz"})[0] == 400
+    post(base + "/api/send", {"id": main.id})
+    assert fake.received[-1] == ("ADD", "VST3: Comp (Vendor)")
+
+
+def test_starring_a_group_through_the_api_covers_its_versions(env):
+    from studio_hub.reaper_db import Plugin
+    base, api, *_ = env
+    main = Plugin("aaaaaaaaaaaa", "Comp", "Vendor", "VST3", False, "VST3: Comp (Vendor)")
+    main.variants = [Plugin("bbbbbbbbbbbb", "Comp (Mono)", "Vendor", "VST3", False, "x", variant="Mono")]
+    api.plugins = [main]
+    api.library.set_favourite("bbbbbbbbbbbb", True)
+    post(base + "/api/plugin", {"id": main.id, "favourite": False})
+    assert find(api, "Comp")["favourite"] is False
+
+
+def new_plugin(pid="cccccccccccc", name="Fresh"):
+    from studio_hub.reaper_db import Plugin
+    return Plugin(pid, name, "Vendor", "VST3", False, f"VST3: {name} (Vendor)")
+
+
+def test_first_state_counts_every_plugin_as_seen(env):
+    _, api, *_ = env
+    assert api.state()["new_plugins"] == []
+    assert api.library.seen() == {p.id for p in api.plugins}
+
+
+def test_plugin_found_later_is_new_until_captured(env):
+    _, api, *_ = env
+    api.state()
+    api.plugins.append(new_plugin())
+    assert api.state()["new_plugins"] == ["cccccccccccc"]
+    api.capture_action("capture_new")
+    assert api.capture.calls[-1] == ("start", ["cccccccccccc"]) and api.state()["new_plugins"] == []
+
+
+def test_new_plugin_notice_can_be_dismissed(env):
+    _, api, *_ = env
+    api.state()
+    api.plugins.append(new_plugin())
+    api.capture_action("dismiss_new")
+    assert api.state()["new_plugins"] == [] and api.capture.calls == []
+
+
+def test_new_version_of_a_known_plugin_is_not_new(env):
+    _, api, *_ = env
+    api.state()
+    api.plugins[0].variants.append(new_plugin("dddddddddddd", "Mono one"))
+    assert api.state()["new_plugins"] == []
+
+
+def test_first_look_with_no_plugins_yet_does_not_flag_the_whole_library_later(env):
+    _, api, *_ = env
+    real = api.plugins
+    api.plugins = []  # REAPER hasn't scanned anything yet
+    api.state()
+    api.plugins = real
+    assert api.state()["new_plugins"] == []

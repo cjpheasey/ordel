@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const S = { data: null, view: "all", chip: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false };
+const S = { data: null, view: "all", chip: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false, versions: {} };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -31,6 +31,7 @@ const devOf = (p) => p.developer || "Unknown developer";
 
 function inView(p, view) {
   if (view === "all") return true;
+  if (view === "chains") return false;
   if (view === "favourites") return p.favourite;
   if (view === "recent") return p.last_used > 0;
   if (view.startsWith("dev:")) return devOf(p) === view.slice(4);
@@ -47,7 +48,7 @@ function chipMatches(p) {
 }
 
 function chipOptions() {
-  if (S.view === "all") return [];  // the sidebar already lists every category
+  if (S.view === "all" || S.view === "chains") return [];  // the sidebar already lists every category
   const byDev = chipsByCategory();
   const counts = new Map();
   for (const p of S.data.plugins.filter((x) => inView(x, S.view))) {
@@ -71,7 +72,7 @@ function visiblePlugins() {
   let list = S.data.plugins.filter((p) => inView(p, S.view) && chipMatches(p));
   if (words.length) {
     list = list.filter((p) => {
-      const hay = `${p.name} ${devOf(p)} ${catOf(p.category).label}`.toLowerCase();
+      const hay = `${p.name} ${devOf(p)} ${catOf(p.category).label} ${p.variants.map((v) => v.label).join(" ")}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
   }
@@ -83,6 +84,7 @@ function viewTitle() {
   if (S.view === "all") return "All plugins";
   if (S.view === "favourites") return "Favourites";
   if (S.view === "recent") return "Recently used";
+  if (S.view === "chains") return "Chains";
   if (S.view.startsWith("dev:")) return S.view.slice(4);
   return catOf(S.view.slice(4)).label;
 }
@@ -98,7 +100,22 @@ const DETAIL_CAPTION = {
   crashed: "This plugin crashed or froze when it was opened, so it's skipped. Retake to try again.",
 };
 
-const shotUrl = (p) => `/snapshots/${p.id}.png?v=${p.shot || 0}`;
+const shotUrl = (p) => `/snapshots/${p.shot_id || p.id}.png?v=${p.shot || 0}`;
+// The version "Add to track" uses: the one picked in the details, else the one usually added.
+const versionOf = (p) => (p.variants.some((v) => v.id === S.versions[p.id]) ? S.versions[p.id] : p.preferred);
+const versionLabel = (p) => p.variants.find((v) => v.id === versionOf(p))?.label;
+
+/* ---------- page help ---------- */
+
+const HELP = {
+  library: "Every plugin REAPER has scanned, with a picture of each. Double-click one to put it on the selected track. Drag a card onto a category to move it.",
+  favourites: "Plugins you've starred. Select one and press F to star or unstar it. The chips narrow it down by category.",
+  recent: "The last plugins you added from Ordel, newest first.",
+  chains: "Save a chain from the selected REAPER track. Click a chain to put it on the selected track, or use its edit button to change it. Turn on 'Use as return track' to make it a send.",
+  settings: "Themes, your shortcut, pictures and the REAPER connection. New plugin not showing? Restart REAPER so it scans it, then refresh.",
+};
+const helpKey = () => (["favourites", "recent", "chains"].includes(S.view) ? S.view : "library");
+const helpButton = (key) => `<span class="help"><button class="help-btn" aria-label="About this page" aria-describedby="help-${key}">${icon("help")}</button><span class="help-pop" role="tooltip" id="help-${key}">${esc(HELP[key])}</span></span>`;
 
 /* ---------- rendering ---------- */
 
@@ -107,7 +124,7 @@ function render() {
   const st = S.data.settings;
   Object.assign(document.body.dataset, {
     theme: st.theme, accent: st.accent, fit: st.picture_fit, density: st.density, corners: st.corners,
-    developer: st.show_developer ? "on" : "off",
+    developer: st.show_developer ? "on" : "off", page: S.view === "chains" ? "chains" : "plugins",
   });
   const viewCat = S.view.startsWith("cat:") ? catOf(S.view.slice(4)).color : "#5e5ce6";
   document.documentElement.style.setProperty("--cat", viewCat);
@@ -115,6 +132,7 @@ function render() {
   renderSidebar();
   renderToolbar();
   renderBanners();
+  renderChainTools();
   renderGrid();
   renderDetail();
 }
@@ -129,7 +147,8 @@ function renderSidebar() {
   setHtml($("#nav-library"),
     navItem("all", "All plugins", ps.length, icon("grid")) +
     navItem("favourites", "Favourites", ps.filter((p) => p.favourite).length, icon("star")) +
-    navItem("recent", "Recently used", Math.min(30, ps.filter((p) => p.last_used > 0).length), icon("clock")));
+    navItem("recent", "Recently used", Math.min(30, ps.filter((p) => p.last_used > 0).length), icon("clock")) +
+    navItem("chains", "Chains", chains().filter((c) => !c.hidden).length, icon("chain")));
   const mode = S.data.settings.sidebar_mode;
   document.querySelectorAll("#nav-switch [data-mode]").forEach((b) => b.setAttribute("aria-selected", b.dataset.mode === mode));
   setHtml($("#nav-categories"), mode === "developers"
@@ -150,7 +169,9 @@ function renderToolbar() {
   const n = visiblePlugins().length;
   const total = S.data.plugins.filter((p) => inView(p, S.view)).length;
   $("#view-title").textContent = viewTitle();
-  $("#view-count").textContent = S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
+  setHtml($("#view-help"), helpButton(helpKey()));
+  $("#view-count").textContent = S.view === "chains" ? plural(visibleChains().length, "chain")
+    : S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
   renderChips(total);
   $("#tile-size").value = S.data.settings.tile_size;
 }
@@ -182,6 +203,15 @@ function renderBanners() {
       <button class="btn quiet" data-capture="cancel">Stop</button>`);
   } else {
     bar.hidden = true;
+  }
+
+  const fresh = S.data.new_plugins || [];
+  const notice = $("#notice");
+  notice.hidden = !fresh.length || cap.running;
+  if (!notice.hidden) {
+    setHtml(notice, `<span>${plural(fresh.length, "new plugin")} found</span><span class="dot-sep">·</span>
+      <button class="link" data-action="capture-new">Capture ${fresh.length === 1 ? "its picture" : "pictures"}</button>
+      <button class="icon-btn" data-action="dismiss-new" aria-label="Dismiss" title="Dismiss">${icon("close")}</button>`);
   }
 
   const r = S.data.reaper;
@@ -229,10 +259,13 @@ function cardHtml(p) {
     <div class="art" style="--c:${c.color}">${art}${p.favourite ? `<span class="fav">${icon("star")}</span>` : ""}</div>
     <div class="meta"><span class="name">${esc(p.name)}</span>
       <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(devOf(p))}</span>${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
+      ${p.variants.length ? `<span class="versions">${p.variants.map((v) => esc(v.label)).join(" · ")}</span>` : ""}
     </div></button></li>`;
 }
 
 function renderGrid() {
+  if (S.view === "chains") return renderChains();
+  $("#grid").classList.remove("chain-grid");
   const list = visiblePlugins();
   const sig = S.view + "|" + S.chip + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}`).join(",");
   if (sig !== S.gridSig) {
@@ -248,11 +281,12 @@ function renderGrid() {
 }
 
 function renderDetail() {
+  if (S.view === "chains") return renderChainDetail();
   const panel = $("#detail");
   const p = S.selected && pluginById(S.selected);
   if (!p) { panel.hidden = true; panel.dataset.id = ""; return; }
   const c = catOf(p.category);
-  const sig = JSON.stringify(p) + S.data.reaper.connected + S.data.capture.running;
+  const sig = JSON.stringify(p) + S.data.reaper.connected + S.data.capture.running + versionOf(p);
   if (!panel.hidden && panel.dataset.sig === sig) return;
   panel.hidden = false;
   panel.dataset.id = p.id;
@@ -267,8 +301,11 @@ function renderDetail() {
     <div class="detail-body">
       <div class="art" style="--c:${c.color}">${art}</div>
       <div><h2>${esc(p.name)}</h2><div class="vendor-line">${esc(devOf(p))}</div></div>
+      ${p.variants.length ? `<div class="version-pick"><span class="k">Version</span>
+        <span class="seg" role="radiogroup" aria-label="Version">${p.variants.map((v) =>
+          `<button role="radio" data-version="${v.id}" aria-selected="${v.id === versionOf(p)}" aria-checked="${v.id === versionOf(p)}">${esc(v.label)}</button>`).join("")}</span></div>` : ""}
       <div class="actions">
-        <button class="btn primary" data-action="send">${icon("plus")}Add to track</button>
+        <button class="btn primary" data-action="send">${icon("plus")}${p.variants.length ? `Add ${esc(versionLabel(p))} to track` : "Add to track"}</button>
         <button class="btn fav-btn" data-action="favourite" aria-pressed="${p.favourite}" aria-label="Favourite" title="Favourite (F)">${icon("star")}</button>
       </div>
       <div class="fields">
@@ -314,7 +351,7 @@ function settingsHtml() {
       `<button role="radio" data-setting="${key}" data-value="${value}" aria-selected="${s[key] === value}" aria-checked="${s[key] === value}">${text}</button>`).join("")}</span></div>`;
   const missing = S.data.plugins.filter((p) => !hasPicture(p)).length;
   return `
-    <div class="sheet-head"><h2 id="sheet-title">Settings</h2><button class="icon-btn" data-action="close-sheet" aria-label="Close">${icon("close")}</button></div>
+    <div class="sheet-head"><h2 id="sheet-title">Settings ${helpButton("settings")}</h2><button class="icon-btn" data-action="close-sheet" aria-label="Close">${icon("close")}</button></div>
     <div class="sheet-body">
       <div class="sheet-section"><h3>Appearance</h3>
         <div class="themes">${theme("ordel", "Ordel")}${theme("graphite", "Graphite")}${theme("light", "Light")}${theme("glass", "Glass")}</div>
@@ -393,10 +430,17 @@ function showSheet(kind) {
 
 /* ---------- toasts ---------- */
 
-function toast(text, warn = false, ms = 2600) {
+function toast(text, warn = false, ms = 2600, action = null) {
   const el = document.createElement("div");
-  el.className = `toast${warn ? " warn" : ""}`;
+  el.className = `toast${warn ? " warn" : ""}${action ? " has-action" : ""}`;
   el.innerHTML = `${icon(warn ? "alert" : "check")}<span>${esc(text)}</span>`;
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "toast-action";
+    b.textContent = action.label;
+    b.addEventListener("click", () => { action.run(); el.remove(); });
+    el.append(b);
+  }
   $("#toasts").append(el);
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, ms);
 }
@@ -440,8 +484,10 @@ async function send(id) {
   const p = pluginById(id);
   if (!p) return;
   try {
-    const r = await api("/api/send", { id });
-    if (r.ok) toast(`Added ${p.name} to ${r.detail || "track"}`);
+    const variant = p.variants.length ? versionOf(p) : undefined;
+    const r = await api("/api/send", { id, variant });
+    const label = p.variants.length ? ` (${versionLabel(p)})` : "";
+    if (r.ok) toast(`Added ${p.name}${label} to ${r.detail || "track"}`);
     else toast(SEND_ERRORS[r.detail] || `Couldn't add ${p.name}`, true);
   } catch (e) {
     toast(`Couldn't add ${p.name}`, true);
@@ -480,6 +526,10 @@ function select(id, focus = false) {
 function setView(view) {
   S.view = view;
   S.chip = null;
+  S.gridSig = "";
+  S.selected = null;  // Enter and F act on the selected plugin, which must not linger out of sight
+  C.selected = null;
+  C.saving = false;
   saveSettings({ last_view: view }).catch(() => {});
   $("#scroller").scrollTop = 0;
   render();
@@ -507,6 +557,8 @@ const actions = {
   "reset-category": () => updatePlugin(S.selected, { category: null }),
   retake: async () => { await api("/api/capture", { action: "retake", id: S.selected }); load(); },
   "custom-image": async () => { const r = await api("/api/custom-image", { id: S.selected }); if (r.ok) toast("Picture updated"); load(); },
+  "capture-new": async () => { await api("/api/capture", { action: "capture_new" }); load(); },
+  "dismiss-new": async () => { await api("/api/capture", { action: "dismiss_new" }); load(); },
   "capture-missing": async () => { await api("/api/capture", { action: "start" }); load(); },
   "recapture-all": async () => { await api("/api/capture", { action: "recapture_all" }); closeSheet(); load(); },
   "finish-welcome": async () => {
@@ -520,9 +572,10 @@ const actions = {
 };
 
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-action],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
+  const t = e.target.closest("[data-action],[data-version],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
+  if (t.dataset.version) { S.versions[S.selected] = t.dataset.version; return render(); }
   if (t.dataset.view) return setView(t.dataset.view);
   if (t.dataset.mode) return saveSettings({ sidebar_mode: t.dataset.mode }).catch(() => {});
   if (t.dataset.chip !== undefined) { S.chip = t.dataset.chip || null; $("#scroller").scrollTop = 0; return render(); }
@@ -627,8 +680,10 @@ document.addEventListener("keydown", async (e) => {
   const sheetOpen = !$("#sheet-backdrop").hidden;
 
   if (e.key === "Escape") {
+    if (document.activeElement?.classList.contains("help-btn")) return document.activeElement.blur();
     if (sheetOpen) return closeSheet();
     if (S.query) { S.query = ""; $("#search").value = ""; render(); return $("#search").blur(); }
+    if (S.view === "chains" && C.selected) { C.selected = null; return render(); }
     if (S.selected) return select(null);
     return api("/api/window", { action: "hide" });
   }
