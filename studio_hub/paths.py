@@ -9,7 +9,24 @@ def _appdata() -> Path:
 
 
 def reaper_dir() -> Path:
-    return Path(os.environ.get("STUDIOHUB_REAPER_DIR") or _appdata() / "REAPER")
+    """REAPER's resource folder: the standard one in AppData, else a portable REAPER's own folder."""
+    if os.environ.get("STUDIOHUB_REAPER_DIR"):
+        return Path(os.environ["STUDIOHUB_REAPER_DIR"])
+    standard = _appdata() / "REAPER"
+    if (standard / "reaper.ini").is_file():
+        return standard
+    from .capture import running_reaper_exe
+
+    remembered = data_dir() / "reaper_dir.txt"  # so a portable REAPER is found even while it's closed
+    exe = running_reaper_exe()
+    if exe and (exe.parent / "reaper.ini").is_file():
+        remembered.write_text(str(exe.parent), encoding="utf-8")
+        return exe.parent
+    if remembered.is_file():
+        folder = Path(remembered.read_text(encoding="utf-8").strip())
+        if (folder / "reaper.ini").is_file():
+            return folder
+    return standard
 
 
 def data_dir() -> Path:

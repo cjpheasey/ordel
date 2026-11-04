@@ -14,7 +14,6 @@ from .categories import CATEGORIES
 from .library import Library
 from .reaper_db import Plugin, load_plugins
 
-REAPER_EXE = Path(r"C:\Program Files\REAPER (x64)\reaper.exe")
 _UNSET = object()
 _PLUGIN_NAME = re.compile(r"^(?:VST3?i?|CLAPi?|DXi?|AUi?): (.*?)(?: \([^()]*\))?$")
 
@@ -303,11 +302,13 @@ class Api:
         if self.bridge.connected():
             self.bridge.send("QUIT", timeout=2.0)  # stop the old copy so the new one can start
             time.sleep(0.3)
-        # Start it inside the running REAPER straight away, so no restart is needed.
-        # A busy REAPER can't take the hand-off, and -nonewinst then starts a second REAPER instead.
-        if REAPER_EXE.exists() and not _reaper_busy():
+        # Start it inside the running REAPER straight away, so no restart is needed; a closed REAPER loads it
+        # when it next starts. A busy REAPER can't take the hand-off, and -nonewinst then starts a second one.
+        from . import capture
+        exe = capture.running_reaper_exe()
+        if exe and not _reaper_busy():
             try:
-                subprocess.Popen([str(REAPER_EXE), "-nonewinst", str(script)],
+                subprocess.Popen([str(exe), "-nonewinst", str(script)],
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             except OSError:
                 pass

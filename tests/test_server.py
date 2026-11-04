@@ -252,3 +252,19 @@ def test_first_look_with_no_plugins_yet_does_not_flag_the_whole_library_later(en
     api.state()
     api.plugins = real
     assert api.state()["new_plugins"] == []
+
+
+def test_connecting_starts_the_script_in_the_running_reaper_wherever_it_lives(env, monkeypatch, tmp_path):
+    _, api, *_ = env
+    api.reaper_dir = tmp_path / "reaper"  # the script is installed here, not into the shared fixtures
+    launched = []
+    monkeypatch.setattr("studio_hub.api._reaper_busy", lambda: False)
+    monkeypatch.setattr("studio_hub.api.subprocess.Popen", lambda args, **kw: launched.append(args))
+    exe = tmp_path / "D drive" / "REAPER" / "reaper.exe"
+    monkeypatch.setattr("studio_hub.capture.running_reaper_exe", lambda: exe)
+    api.install_bridge()
+    assert launched and launched[-1][:2] == [str(exe), "-nonewinst"]
+    monkeypatch.setattr("studio_hub.capture.running_reaper_exe", lambda: None)
+    launched.clear()
+    api.install_bridge()  # REAPER closed: it picks the script up when it next starts; never open REAPER
+    assert launched == []

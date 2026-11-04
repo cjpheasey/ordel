@@ -11,12 +11,12 @@ from PIL import Image
 log = logging.getLogger(__name__)
 
 
-def _reaper_pids() -> set[int]:
+def _processes():
+    """(pid, full path of its program) for every process we may look at."""
     import win32api
     import win32con
     import win32process
 
-    pids = set()
     for pid in win32process.EnumProcesses():
         try:
             handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
@@ -24,10 +24,21 @@ def _reaper_pids() -> set[int]:
             win32api.CloseHandle(handle)
         except Exception:
             continue
+        yield pid, name
+
+
+def _reaper_pids() -> set[int]:
+    pids = set()
+    for pid, name in _processes():
         exe = name.lower().rsplit("\\", 1)[-1]
         if exe == "reaper.exe" or exe.startswith("reaper_host"):  # reaper_host64.exe runs bridged plugins
             pids.add(pid)
     return pids
+
+
+def running_reaper_exe() -> Path | None:
+    """Where the open REAPER lives, wherever it was installed."""
+    return next((Path(name) for _, name in _processes() if Path(name).name.lower() == "reaper.exe"), None)
 
 
 def title_matches(title: str, name: str) -> bool:

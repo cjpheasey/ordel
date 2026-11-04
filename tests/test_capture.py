@@ -364,3 +364,16 @@ def test_blank_reaper_window_falls_back_to_the_plugins_own_window(tmp_path):
         assert "own window of ReaComp" in closed
     finally:
         reaper.stop()
+
+
+def test_running_reaper_is_found_by_its_program_path(monkeypatch):
+    from pathlib import Path
+
+    from studio_hub import capture
+    procs = [(1, r"C:\Windows\notepad.exe"), (2, r"C:\Program Files\REAPER (x64)\reaper_host64.exe"),
+             (3, r"D:\Apps\REAPER\REAPER.exe")]
+    monkeypatch.setattr(capture, "_processes", lambda: iter(procs))
+    assert capture.running_reaper_exe() == Path(r"D:\Apps\REAPER\REAPER.exe")
+    assert capture._reaper_pids() == {2, 3}
+    monkeypatch.setattr(capture, "_processes", lambda: iter(procs[:2]))
+    assert capture.running_reaper_exe() is None
