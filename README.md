@@ -1,10 +1,47 @@
 # Ordel
 
-<img src="brand/final/ordel-lockup-horizontal.svg" width="320" alt="Ordel">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/final/ordel-lockup-horizontal-reversed.svg">
+  <img src="brand/final/ordel-lockup-horizontal.svg" width="320" alt="Ordel">
+</picture>
 
 A visual plugin library for REAPER. The name comes from *order*: every plugin in its place. Every plugin you own is shown as a picture of its real interface, sorted into categories, one keyboard shortcut away, and sent straight onto the selected track.
 
 Built for mixing sessions where you remember a plugin by its face, not its name.
+
+![Ordel's Dynamics page: compressors from Antares, Plugin Alliance, KIT Plugins, Softube and FabFilter as pictures of their interfaces](docs/screenshots/ordel-library.jpg)
+
+**[Download Ordel for Windows](https://github.com/cjpheasey/ordel/releases/latest/download/Ordel-Setup.exe)** · free · Windows 10/11 · needs REAPER
+
+## See it in action
+
+![Searching for a plugin, picking its Mono version, adding it to a track with one click, then putting a saved vocal chain on two tracks](docs/screenshots/walkthrough.gif)
+
+## How it works
+
+### 1. Find it by sight
+
+Press **Ctrl+Shift+Space** anywhere, even inside REAPER, and start typing. Every plugin shows as a picture of its real interface, sorted into categories or by developer, so you can spot the one you want the way you'd spot it on a rack.
+
+![Typing "comp" finds compressors from Antares, KIT Plugins, Plugin Alliance, Waves, Cockos and Universal Audio](docs/screenshots/find-by-sight.jpg)
+
+### 2. Pick the version, add it in one click
+
+Stereo, Mono and Sidechain versions share one card, with a switch underneath. Pick one, click **+**, and it's on the selected REAPER track with its window open. Double-click or Enter work too.
+
+![Adding the Mono version of Waves RCompressor to Track 1](docs/screenshots/add-in-one-click.jpg)
+
+### 3. Chains in one click
+
+Save the plugins on a REAPER track, settings included, as a chain. Put it on any number of tracks at once, or on a new return track for your sends.
+
+![A lead vocal chain going onto two tracks, next to a drum bus and two return chains](docs/screenshots/chains.jpg)
+
+### 4. Make it yours
+
+Four themes (Ordel, Graphite, Light and Glass), accent colours, picture size, density and corners.
+
+![The same library in the Ordel, Graphite, Light and Glass themes](docs/screenshots/themes.jpg)
 
 ## Features
 
