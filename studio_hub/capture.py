@@ -261,7 +261,7 @@ class CaptureRunner:
                 return
             for indexed in (self.helper, self.isolate):  # find plugins installed since the last run
                 getattr(indexed, "forget", lambda: None)()
-            plugins = self.plugins_fn()
+            plugins = [v for p in self.plugins_fn() for v in (p, *p.variants)]  # every version has its own picture
             if ids is None:
                 # Never-tried plugins first; ones that crashed are only retried on request.
                 todo = [p for p in plugins if self.library.capture_status(p.id) == "none"]

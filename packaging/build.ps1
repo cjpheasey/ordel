@@ -4,5 +4,10 @@ Set-Location (Split-Path $PSScriptRoot)
 .venv\Scripts\pip install -q pyinstaller
 .venv\Scripts\python packaging\make_icon.py
 .venv\Scripts\pyinstaller --noconfirm --clean --distpath dist --workpath build packaging\studio_hub.spec
-$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (Test-Path $iscc) { & $iscc packaging\installer.iss } else { Write-Host "Inno Setup 6 not found: skipped the installer. dist\Ordel is ready to run." }
+# Never package a half-built app (e.g. dist\Ordel locked because Ordel is running from it).
+if ($LASTEXITCODE) { Write-Host "App build failed (is Ordel running from dist\Ordel?): no installer made."; exit $LASTEXITCODE }
+# Inno Setup 7 or 6, wherever it was installed (Program Files, either kind, or a per-user install).
+$iscc = @("${env:ProgramFiles}", "${env:ProgramFiles(x86)}", "$env:LOCALAPPDATA\Programs") |
+    ForEach-Object { "$_\Inno Setup 7\ISCC.exe"; "$_\Inno Setup 6\ISCC.exe" } |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) { & $iscc packaging\installer.iss } else { Write-Host "Inno Setup not found: skipped the installer. dist\Ordel is ready to run." }

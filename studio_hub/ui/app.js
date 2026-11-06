@@ -104,6 +104,14 @@ const shotUrl = (p) => `/snapshots/${p.shot_id || p.id}.png?v=${p.shot || 0}`;
 // The version "Add to track" uses: the one picked in the details, else the one usually added.
 const versionOf = (p) => (p.variants.some((v) => v.id === S.versions[p.id]) ? S.versions[p.id] : p.preferred);
 const versionLabel = (p) => p.variants.find((v) => v.id === versionOf(p))?.label;
+// The picked version's own picture when it has one (a Mono version can look different), else the main one.
+function pictureOf(p) {
+  const own = p.variants.find((v) => v.id === versionOf(p) && v.shot);
+  return { url: own ? `/snapshots/${own.id}.png?v=${own.shot}` : shotUrl(p), has: Boolean(own) || hasPicture(p), own };
+}
+// Stereo / Mono / Sidechain under a card: pick the version, then double-click the card as usual.
+const versionSwitch = (p, cls = "") => `<span class="seg version-switch ${cls}" role="radiogroup" aria-label="Version of ${esc(p.name)}">${
+  p.variants.map((v) => `<button role="radio" data-version="${v.id}" data-for="${p.id}" aria-checked="${v.id === versionOf(p)}" aria-selected="${v.id === versionOf(p)}">${esc(v.label)}</button>`).join("")}</span>`;
 
 /* ---------- page help ---------- */
 
@@ -252,22 +260,23 @@ function emptyState() {
 function cardHtml(p) {
   const c = catOf(p.category);
   const sel = p.id === S.selected ? "true" : "false";
-  const art = hasPicture(p)
-    ? `<img class="bg" src="${shotUrl(p)}" alt="" loading="lazy" decoding="async"><img class="fg" src="${shotUrl(p)}" alt="" loading="lazy" decoding="async">`
+  const pic = pictureOf(p);
+  const art = pic.has
+    ? `<img class="bg" src="${pic.url}" alt="" loading="lazy" decoding="async"><img class="fg" src="${pic.url}" alt="" loading="lazy" decoding="async">`
     : `<div class="ph"><span class="initials">${esc(initials(p.name))}</span>${CAPTION[p.capture] ? `<span class="why">${CAPTION[p.capture]}</span>` : ""}</div>`;
   return `<li><button class="card" data-id="${p.id}" aria-selected="${sel}" draggable="true" title="${esc(p.name)}">
     <div class="art" style="--c:${c.color}">${art}${p.favourite ? `<span class="fav">${icon("star")}</span>` : ""}</div>
     <div class="meta"><span class="name">${esc(p.name)}</span>
       <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(devOf(p))}</span>${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
-      ${p.variants.length ? `<span class="versions">${p.variants.map((v) => esc(v.label)).join(" · ")}</span>` : ""}
-    </div></button></li>`;
+    </div></button>
+    <button class="card-add" data-add="${p.id}" aria-label="Add ${esc(p.name)} to track" title="Add to track">${icon("plus")}</button>${p.variants.length ? versionSwitch(p, "on-card") : ""}</li>`;
 }
 
 function renderGrid() {
   if (S.view === "chains") return renderChains();
   $("#grid").classList.remove("chain-grid");
   const list = visiblePlugins();
-  const sig = S.view + "|" + S.chip + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}`).join(",");
+  const sig = S.view + "|" + S.chip + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}${versionOf(p)}`).join(",");
   if (sig !== S.gridSig) {
     const focused = document.activeElement?.dataset?.id;
     $("#grid").innerHTML = list.map(cardHtml).join("");
@@ -293,17 +302,16 @@ function renderDetail() {
   panel.dataset.sig = sig;
   const options = cats().map((k) => `<option value="${k.key}"${k.key === p.category ? " selected" : ""}>${esc(k.label)}</option>`).join("");
   const formats = [p.format, ...p.alternates.map((a) => a.split(":")[0].replace(/i$/, ""))];
-  const art = hasPicture(p)
-    ? `<img class="bg" src="${shotUrl(p)}" alt=""><img class="fg" src="${shotUrl(p)}" alt="Interface of ${esc(p.name)}">`
+  const { url, own, has } = pictureOf(p);
+  const art = has
+    ? `<img class="bg" src="${url}" alt=""><img class="fg" src="${url}" alt="Interface of ${esc(p.name)}">`
     : `<div class="ph"><span class="initials" style="font-size:48px">${esc(initials(p.name))}</span><span class="why">${DETAIL_CAPTION[p.capture] || "No picture yet"}</span></div>`;
   panel.innerHTML = `
     <div class="detail-head"><button class="icon-btn" data-action="close-detail" aria-label="Close details">${icon("close")}</button></div>
     <div class="detail-body">
       <div class="art" style="--c:${c.color}">${art}</div>
       <div><h2>${esc(p.name)}</h2><div class="vendor-line">${esc(devOf(p))}</div></div>
-      ${p.variants.length ? `<div class="version-pick"><span class="k">Version</span>
-        <span class="seg" role="radiogroup" aria-label="Version">${p.variants.map((v) =>
-          `<button role="radio" data-version="${v.id}" aria-selected="${v.id === versionOf(p)}" aria-checked="${v.id === versionOf(p)}">${esc(v.label)}</button>`).join("")}</span></div>` : ""}
+      ${p.variants.length ? `<div class="version-pick"><span class="k">Version</span>${versionSwitch(p)}</div>` : ""}
       <div class="actions">
         <button class="btn primary" data-action="send">${icon("plus")}${p.variants.length ? `Add ${esc(versionLabel(p))} to track` : "Add to track"}</button>
         <button class="btn fav-btn" data-action="favourite" aria-pressed="${p.favourite}" aria-label="Favourite" title="Favourite (F)">${icon("star")}</button>
@@ -315,7 +323,7 @@ function renderDetail() {
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
       </div>
       <div class="picture-actions">
-        <button class="btn quiet" data-action="retake" ${S.data.reaper.connected && !S.data.capture.running ? "" : "disabled"}>${icon("camera")}${hasPicture(p) ? "Retake picture" : "Capture picture"}</button>
+        <button class="btn quiet" data-action="retake" ${S.data.reaper.connected && !S.data.capture.running ? "" : "disabled"}>${icon("camera")}${(p.variants.length ? own : hasPicture(p)) ? "Retake picture" : "Capture picture"}</button>
         <button class="btn quiet" data-action="custom-image">${icon("image")}Use my own image…</button>
       </div>
     </div>`;
@@ -565,7 +573,11 @@ const actions = {
   send: () => send(S.selected),
   favourite: () => { const p = pluginById(S.selected); updatePlugin(p.id, { favourite: !p.favourite }); },
   "reset-category": () => updatePlugin(S.selected, { category: null }),
-  retake: async () => { await api("/api/capture", { action: "retake", id: S.selected }); load(); },
+  retake: async () => {  // the version shown in the details
+    const p = pluginById(S.selected);
+    await api("/api/capture", { action: "retake", id: p?.variants.length ? versionOf(p) : S.selected });
+    load();
+  },
   "custom-image": async () => { const r = await api("/api/custom-image", { id: S.selected }); if (r.ok) toast("Picture updated"); load(); },
   "capture-new": async () => { await api("/api/capture", { action: "capture_new" }); load(); },
   "dismiss-new": async () => { await api("/api/capture", { action: "dismiss_new" }); load(); },
@@ -584,10 +596,12 @@ const actions = {
 document.addEventListener("click", (e) => {
   // A shortcut another app (or Ordel) already owns never reaches the page: clicking away cancels recording.
   if (S.recording && !e.target.closest("#hotkey")) { S.recording = false; refreshSheet(); }
+  const add = e.target.closest("[data-add]");
+  if (add) return send(add.dataset.add);  // the + on a card
   const t = e.target.closest("[data-action],[data-version],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
-  if (t.dataset.version) { S.versions[S.selected] = t.dataset.version; return render(); }
+  if (t.dataset.version) { S.versions[t.dataset.for || S.selected] = t.dataset.version; return render(); }
   if (t.dataset.view) return setView(t.dataset.view);
   if (t.dataset.mode) return saveSettings({ sidebar_mode: t.dataset.mode }).catch(() => {});
   if (t.dataset.chip !== undefined) { S.chip = t.dataset.chip || null; $("#scroller").scrollTop = 0; return render(); }
@@ -595,7 +609,16 @@ document.addEventListener("click", (e) => {
   if (t.dataset.window) return api("/api/window", { action: t.dataset.window });
   if (t.dataset.themeOpt) return saveSettings({ theme: t.dataset.themeOpt }).then(refreshSheet);
   if (t.dataset.setting) return saveSettings({ [t.dataset.setting]: t.dataset.value }).then(refreshSheet);
-  if (t.classList.contains("card")) return select(t.dataset.id);
+  if (t.classList.contains("card")) {
+    // Highlight now; open the details a moment later, so the panel sliding in can't move the cards
+    // between the two clicks of a double-click (which would then miss, or hit another plugin).
+    clearTimeout(S.openTimer);
+    if (e.detail >= 2) return;  // second click of a double-click: the dblclick handler adds it
+    const id = t.dataset.id;
+    document.querySelectorAll(".card").forEach((el) => el.setAttribute("aria-selected", el.dataset.id === id));
+    S.openTimer = setTimeout(() => select(id), 250);
+    return;
+  }
   if (t.id === "reaper-status" || t.id === "open-settings") return showSheet("settings");
   if (t.id === "hotkey") {
     S.recording = true;
@@ -614,7 +637,7 @@ document.addEventListener("mousedown", (e) => {
 
 document.addEventListener("dblclick", (e) => {
   const card = e.target.closest(".card");
-  if (card) send(card.dataset.id);
+  if (card) { clearTimeout(S.openTimer); send(card.dataset.id); }
 });
 
 document.addEventListener("change", (e) => {

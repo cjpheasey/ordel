@@ -188,7 +188,9 @@ class Library:
                     "id": p.id, "name": p.name, "vendor": p.vendor, "developer": tidy_developer(p.vendor),
                     "format": p.format,
                     "instrument": p.instrument, "alternates": p.alternates,
-                    "variants": [{"id": m.id, "label": m.variant} for m in members] if p.variants else [],
+                    "variants": [{"id": m.id, "label": m.variant,
+                                  "shot": s.get("shot", 0) if s.get("capture") in ("ok", "custom") else 0}
+                                 for m, s in zip(members, states)] if p.variants else [],
                     "preferred": preferred,
                     "category": next((s["category"] for s in states if s.get("category")), None) or auto,
                     "category_auto": auto,

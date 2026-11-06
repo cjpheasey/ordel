@@ -369,7 +369,21 @@ body[data-developer="off"] .sub .vendor { display: none; }
 .sub { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; min-width: 0; }
 .sub .tag { width: 8px; height: 8px; border-radius: 2px; }
 .sub .vendor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.versions { display: block; margin-top: 2px; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid > li { position: relative; container-type: inline-size; }
+/* The + in the picture's bottom-right corner (the picture is 16:10 and as wide as the card). */
+.card-add {
+  position: absolute; right: 10px; top: calc(62.5cqw - 44px);
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-text); box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+  opacity: 0; transform: scale(.9); transition: opacity .15s, transform .15s; pointer-events: none;
+}
+.card-add .icon { width: 18px; height: 18px; stroke-width: 2.2; }
+.grid > li:hover .card-add, .card[aria-selected="true"] ~ .card-add, .card-add:focus-visible {
+  opacity: 1; transform: none; pointer-events: auto;
+}
+.card-add:hover { transform: scale(1.06); }
+.version-switch.on-card { margin: 6px 2px 0; flex-wrap: wrap; }
+.version-switch.on-card button { flex: 1 1 auto; height: 22px; padding: 0 8px; font-size: 11px; white-space: nowrap; }
 .version-pick { display: grid; gap: 6px; }
 .version-pick .k { font-size: 12px; color: var(--text-2); }
 .version-pick .seg { margin: 0; flex-wrap: wrap; }

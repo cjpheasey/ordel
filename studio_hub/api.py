@@ -280,7 +280,8 @@ class Api:
             self.capture.start([id])
         elif action == "recapture_all":
             # Pictures you chose yourself are never replaced.
-            self.capture.start([p.id for p in self.plugins if self.library.capture_status(p.id) != "custom"])
+            everyone = [v for p in self.plugins for v in (p, *p.variants)]
+            self.capture.start([p.id for p in everyone if self.library.capture_status(p.id) != "custom"])
         elif action == "capture_new":
             new = self.new_plugins()
             if new:

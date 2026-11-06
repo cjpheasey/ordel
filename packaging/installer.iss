@@ -15,6 +15,9 @@ UninstallDisplayIcon={app}\Ordel.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Ordel is per person (its library, REAPER settings, start at sign-in), so install for this user by default:
+; no admin prompt, files in %LOCALAPPDATA%\Programs. "All users" is still offered.
+PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
 

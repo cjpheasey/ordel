@@ -309,3 +309,11 @@ def test_refresh_finds_reaper_that_wasnt_found_at_start(tmp_path, monkeypatch):
     monkeypatch.setattr("studio_hub.api.reaper_dir", lambda: FIX)
     api.refresh()
     assert len(api.plugins) == 7 and api.reaper_dir == FIX and moved == [FIX, FIX]
+
+
+def test_recapture_all_includes_every_version(env):
+    from studio_hub.reaper_db import Plugin
+    _, api, *_ = env
+    api.plugins[0].variants = [Plugin("cccccccccccc", "X (Mono)", "V", "VST3", False, "VST3: X (Mono) (V)", variant="Mono")]
+    api.capture_action("recapture_all")
+    assert "cccccccccccc" in api.capture.calls[-1][1]

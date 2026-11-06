@@ -139,7 +139,7 @@ def group():
 
 def test_group_lists_its_versions_main_first(tmp_path):
     v, = Library(tmp_path / "l.json").view([group()])
-    assert v["variants"] == [{"id": MAIN, "label": "Stereo"}, {"id": MONO, "label": "Mono"}]
+    assert v["variants"] == [{"id": MAIN, "label": "Stereo", "shot": 0}, {"id": MONO, "label": "Mono", "shot": 0}]
     assert Library(tmp_path / "l.json").view([plugin()])[0]["variants"] == []
 
 
@@ -214,3 +214,12 @@ def test_seen_plugins_are_remembered(tmp_path):
     lib.mark_seen({"a"})
     lib.mark_seen({"b"})
     assert Library(tmp_path / "l.json").seen() == {"a", "b"}
+
+
+def test_each_version_says_whether_it_has_its_own_picture(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_capture(MONO, "ok")
+    v, = lib.view([group()])
+    main, mono = v["variants"]
+    assert main["id"] == MAIN and main["shot"] == 0  # no picture of its own yet
+    assert mono["id"] == MONO and mono["shot"] > 0

@@ -563,3 +563,37 @@ def test_no_second_try_in_reaper_itself_while_work_is_unsaved(tmp_path):
         assert runner.status()["needs_save"] == 1  # so Ordel asks the user to save, then capture again
     finally:
         reaper.stop()
+
+
+def grouped(plugins):
+    """ReaComp with a Mono version, as Ordel groups them."""
+    from studio_hub.reaper_db import Plugin
+    comp = by_name(plugins, "ReaComp")
+    mono = Plugin("cccccccccccc", "ReaComp (Mono)", "Cockos", "VST", False, "VST: ReaComp (Mono) (Cockos)",
+                  variant="Mono")
+    comp.variants = [mono]
+    return comp, mono
+
+
+def test_capture_missing_includes_versions_without_a_picture(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    comp, mono = grouped(plugins)
+    for p in plugins:
+        lib.set_capture(p.id, "ok")
+    try:
+        runner.start()
+        wait_done(runner)
+        assert reaper_opened(reaper) == ["VST: ReaComp (Mono) (Cockos)"] and lib.capture_status(mono.id) == "ok"
+    finally:
+        reaper.stop()
+
+
+def test_a_single_version_can_be_retaken(tmp_path):
+    runner, lib, plugins, reaper, _ = make(tmp_path)
+    comp, mono = grouped(plugins)
+    try:
+        runner.start([mono.id])
+        wait_done(runner)
+        assert reaper_opened(reaper) == ["VST: ReaComp (Mono) (Cockos)"]
+    finally:
+        reaper.stop()
