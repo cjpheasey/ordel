@@ -317,3 +317,13 @@ def test_recapture_all_includes_every_version(env):
     api.plugins[0].variants = [Plugin("cccccccccccc", "X (Mono)", "V", "VST3", False, "VST3: X (Mono) (V)", variant="Mono")]
     api.capture_action("recapture_all")
     assert "cccccccccccc" in api.capture.calls[-1][1]
+
+
+def test_custom_categories_appear_before_uncategorised(env):
+    base, api, *_ = env
+    created = post(base + "/api/category", {"action": "add", "label": "Vocal Chain"})[1]
+    cats = api.state()["categories"]
+    assert cats[-1]["key"] == "uncategorised" and cats[-2]["key"] == created["key"] and cats[-2]["custom"]
+    pid = api.plugins[0].id
+    assert post(base + "/api/plugin", {"id": pid, "category": created["key"]})[0] == 200
+    assert post(base + "/api/category", {"action": "explode"})[0] == 400

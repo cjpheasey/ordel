@@ -2,13 +2,15 @@
 import copy
 import json
 import os
+import re
 import threading
 import time
+import uuid
 from collections.abc import Iterable
 from pathlib import Path
 
 from .bridge import replace_file
-from .categories import KEYS, resolve_category
+from .categories import CATEGORIES, KEYS, resolve_category
 from .reaper_db import Plugin, tidy_developer
 
 DEFAULT_SETTINGS = {
@@ -27,6 +29,9 @@ DEFAULT_SETTINGS = {
     "corners": "rounded",
     "show_developer": True,
 }
+# Colours for categories you make yourself, in order; picked so they sit apart from the built-in ones.
+CUSTOM_COLOURS = ["#F2A7C3", "#7FD1AE", "#F5B971", "#9DB4FF", "#C9A15A", "#E07A5F", "#81B29A", "#B8A1E3"]
+_HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 CAPTURE_STATES = {"none", "ok", "failed", "custom", "crashed"}
 CHOICES = {
     "theme": {"ordel", "graphite", "light", "glass"},
@@ -60,6 +65,7 @@ class Library:
         self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self._plugins: dict[str, dict] = {}
         self._chains: dict[str, dict] = {}  # Ordel's extras per chain: order, return_track, hidden, ...
+        self._categories: list[dict] = []  # categories the user made: key, label, color
         self._seen: list[str] | None = None  # plugin ids Ordel has already shown; None until first recorded
         self._load()
 
@@ -71,6 +77,9 @@ class Library:
             settings = data.get("settings", {})
             plugins = data.get("plugins", {})
             chains = data.get("chains", {})
+            categories = data.get("categories")
+            if isinstance(categories, list):
+                self._categories = [c for c in categories if isinstance(c, dict) and {"key", "label", "color"} <= c.keys()]
             seen = data.get("seen")
             if isinstance(seen, list):
                 self._seen = [s for s in seen if isinstance(s, str)]
@@ -88,7 +97,8 @@ class Library:
     def _save(self) -> None:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": 1, "settings": self.settings, "plugins": self._plugins,
-                                   "chains": self._chains, "seen": self._seen}, indent=1), encoding="utf-8")
+                                   "chains": self._chains, "seen": self._seen, "categories": self._categories},
+                                  indent=1), encoding="utf-8")
         replace_file(tmp, self.path)
 
     def _set(self, plugin_id: str, **fields) -> None:
@@ -113,11 +123,60 @@ class Library:
             self._set(plugin_id, favourite=bool(on))
 
     def set_category(self, plugin_id: str, key: str | None, also: Iterable[str] = ()) -> None:
-        if key is not None and key not in KEYS:
+        if key is not None and key not in KEYS and key not in {c["key"] for c in self._categories}:
             raise ValueError(f"unknown category {key!r}")
         with self._lock:
             self._clear(also, "category")
             self._set(plugin_id, category=key)
+
+    # ---------- categories the user makes ----------
+
+    def custom_categories(self) -> list[dict]:
+        with self._lock:
+            return [dict(c, custom=True) for c in self._categories]
+
+    def _check_label(self, label: str, ignore_key: str | None = None) -> str:
+        label = " ".join(str(label).split())
+        if not 1 <= len(label) <= 40:
+            raise ValueError("a category needs a name of up to 40 characters")
+        taken = [c["label"] for c in CATEGORIES] + [c["label"] for c in self._categories if c["key"] != ignore_key]
+        if label.lower() in (t.lower() for t in taken):
+            raise ValueError(f"there's already a category called {label}")
+        return label
+
+    def add_category(self, label: str) -> dict:
+        with self._lock:
+            label = self._check_label(label)
+            used = {c["color"] for c in self._categories}
+            color = next((c for c in CUSTOM_COLOURS if c not in used), CUSTOM_COLOURS[len(self._categories) % len(CUSTOM_COLOURS)])
+            category = {"key": "c-" + uuid.uuid4().hex[:8], "label": label, "color": color}
+            self._categories.append(category)
+            self._save()
+            return dict(category, custom=True)
+
+    def update_category(self, key: str, label: str | None = None, color: str | None = None) -> None:
+        with self._lock:
+            category = next((c for c in self._categories if c["key"] == key), None)
+            if category is None:
+                raise ValueError("only categories you made can be changed")
+            if label is not None:
+                category["label"] = self._check_label(label, ignore_key=key)
+            if color is not None:
+                if not _HEX.match(str(color)):
+                    raise ValueError("not a colour")
+                category["color"] = color
+            self._save()
+
+    def delete_category(self, key: str) -> None:
+        """Its plugins go back to the category Ordel detected for them."""
+        with self._lock:
+            if not any(c["key"] == key for c in self._categories):
+                raise ValueError("only categories you made can be deleted")
+            self._categories = [c for c in self._categories if c["key"] != key]
+            for record in self._plugins.values():
+                if record.get("category") == key:
+                    record.pop("category")
+            self._save()
 
     def count_variant(self, group_id: str, variant_id: str) -> None:
         """Remember which version gets added, so double-click picks the usual one."""

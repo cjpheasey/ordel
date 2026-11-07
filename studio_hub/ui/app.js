@@ -22,7 +22,7 @@ async function api(path, body) {
 
 /* ---------- data helpers ---------- */
 
-const cats = () => S.data.categories;
+const cats = () => S.data.categories.filter((c) => !K.deleting.has(c.key));  // K: categories.js
 const catOf = (key) => cats().find((c) => c.key === key) || cats()[cats().length - 1];
 const pluginById = (id) => S.data.plugins.find((p) => p.id === id);
 const hasPicture = (p) => p.capture === "ok" || p.capture === "custom";
@@ -163,10 +163,10 @@ function renderSidebar() {
     ? developers().map(([name, n]) => navItem(`dev:${name}`, name, n, `<span class="initial">${esc(name[0].toUpperCase())}</span>`)).join("")
     : cats()
       .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
-      .filter(({ c, n }) => n > 0 || S.view === `cat:${c.key}`)
+      .filter(({ c, n }) => n > 0 || c.custom || S.view === `cat:${c.key}`)  // yours show even when empty
       .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
         `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`))
-      .join(""));
+      .join("") + newCategoryRow());
 
   const r = S.data.reaper;
   setHtml($("#reaper-status"), `<span class="dot${r.connected ? " on" : ""}"></span>${r.connected ? "REAPER connected" : "REAPER not connected"}`);
@@ -177,7 +177,7 @@ function renderToolbar() {
   const n = visiblePlugins().length;
   const total = S.data.plugins.filter((p) => inView(p, S.view)).length;
   $("#view-title").textContent = viewTitle();
-  setHtml($("#view-help"), helpButton(helpKey()));
+  setHtml($("#view-help"), helpButton(helpKey()) + editCategoryButton());
   $("#view-count").textContent = S.view === "chains" ? plural(visibleChains().length, "chain")
     : S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
   renderChips(total);
@@ -300,7 +300,6 @@ function renderDetail() {
   panel.hidden = false;
   panel.dataset.id = p.id;
   panel.dataset.sig = sig;
-  const options = cats().map((k) => `<option value="${k.key}"${k.key === p.category ? " selected" : ""}>${esc(k.label)}</option>`).join("");
   const formats = [p.format, ...p.alternates.map((a) => a.split(":")[0].replace(/i$/, ""))];
   const { url, own, has } = pictureOf(p);
   const art = has
@@ -318,7 +317,7 @@ function renderDetail() {
       </div>
       <div class="fields">
         <div class="field"><span class="k">Category</span>
-          <span class="select-wrap"><span class="tag" style="--c:${c.color}"></span><select id="category-select" aria-label="Category">${options}</select></span></div>
+          <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Category: ${esc(c.label)}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(c.label)}</span><span class="chev"></span></button></div>
         ${p.category !== p.category_auto ? `<div class="field"><span class="k">Detected as ${esc(catOf(p.category_auto).label)}</span><button class="link" data-action="reset-category">Use detected</button></div>` : ""}
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
       </div>
@@ -641,7 +640,6 @@ document.addEventListener("dblclick", (e) => {
 });
 
 document.addEventListener("change", (e) => {
-  if (e.target.id === "category-select") updatePlugin(S.selected, { category: e.target.value });
   if (e.target.id === "hide-after-add") saveSettings({ hide_after_add: e.target.checked });
   if (e.target.id === "show-developer") saveSettings({ show_developer: e.target.checked });
 });

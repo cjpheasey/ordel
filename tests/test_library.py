@@ -223,3 +223,48 @@ def test_each_version_says_whether_it_has_its_own_picture(tmp_path):
     main, mono = v["variants"]
     assert main["id"] == MAIN and main["shot"] == 0  # no picture of its own yet
     assert mono["id"] == MONO and mono["shot"] > 0
+
+
+def test_custom_categories_can_be_made_used_and_survive_a_restart(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    drums = lib.add_category("  Drum Bus  ")
+    assert drums["label"] == "Drum Bus" and drums["key"].startswith("c-") and drums["color"].startswith("#")
+    lib.set_category(plugin().id, drums["key"])
+    again = Library(tmp_path / "l.json")
+    assert [c["label"] for c in again.custom_categories()] == ["Drum Bus"]
+    assert again.view([plugin()])[0]["category"] == drums["key"]
+
+
+def test_each_new_category_gets_its_own_colour(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    colours = {lib.add_category(f"Mine {i}")["color"] for i in range(5)}
+    assert len(colours) == 5
+
+
+def test_category_names_must_be_real_and_unique(tmp_path):
+    import pytest
+    lib = Library(tmp_path / "l.json")
+    lib.add_category("Vocals")
+    for bad in ("", "   ", "vocals", "EQ", "x" * 41):
+        with pytest.raises(ValueError):
+            lib.add_category(bad)
+
+
+def test_renaming_and_recolouring_a_category(tmp_path):
+    import pytest
+    lib = Library(tmp_path / "l.json")
+    key = lib.add_category("Vox")["key"]
+    lib.update_category(key, label="Vocals", color="#81B29A")
+    assert lib.custom_categories() == [{"key": key, "label": "Vocals", "color": "#81B29A", "custom": True}]
+    with pytest.raises(ValueError):
+        lib.update_category(key, color="red; background: url(x)")  # only real colours
+    with pytest.raises(ValueError):
+        lib.update_category("eq", label="Nope")  # built-in categories can't be changed
+
+
+def test_deleting_a_category_sends_its_plugins_back_to_their_detected_category(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    key = lib.add_category("Vox")["key"]
+    lib.set_category(plugin().id, key)
+    lib.delete_category(key)
+    assert lib.custom_categories() == [] and lib.view([plugin()])[0]["category"] == "dynamics"

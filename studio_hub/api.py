@@ -46,7 +46,8 @@ class Api:
     def state(self) -> dict:
         return {
             "plugins": self.library.view(self.plugins),
-            "categories": CATEGORIES,
+            # Yours sit just before Uncategorised, which stays last.
+            "categories": CATEGORIES[:-1] + self.library.custom_categories() + CATEGORIES[-1:],
             "settings": dict(self.library.settings),
             "reaper": {"connected": self.bridge.connected(), "installed": self.bridge.installed(self.reaper_dir),
                        "library_found": bool(self.plugins)},
@@ -259,6 +260,18 @@ class Api:
                 return {"ok": True, "id": new_id}
             self.library.set_chain_meta(c["id"], name=chainlib.safe_name(name))
         return {"ok": True, "id": c["id"]}
+
+    def category_action(self, action: str, key: str | None = None, label: str | None = None,
+                        color: str | None = None) -> dict:
+        if action == "add":
+            return self.library.add_category(label or "")
+        if action == "update":
+            self.library.update_category(str(key), label, color)
+        elif action == "delete":
+            self.library.delete_category(str(key))
+        else:
+            raise ValueError(f"unknown category action {action!r}")
+        return {"ok": True}
 
     def update_settings(self, **kw) -> dict:
         hotkey_ok = True
