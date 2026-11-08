@@ -17,7 +17,7 @@ Eight tiles and one ring. The tiles are your library, sorted; the brass ring is 
 
 ## The wordmark
 
-`ordel`, always lowercase, drawn from circles and strokes (it is not a font). Its signature is the **e**'s crossbar running on into the **l**, in brass.
+`ordel`, always lowercase, drawn from circles and strokes (it is not a font). Its signature is the **o** in brass, echoing the brass ring at the centre of the symbol; the other letters are plain.
 
 | File | Use |
 |---|---|

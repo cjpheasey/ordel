@@ -9,6 +9,7 @@ import runpy
 from pathlib import Path
 
 from shapely import affinity
+from shapely.geometry import box
 from shapely.ops import unary_union
 
 HERE = Path(__file__).parent
@@ -55,17 +56,21 @@ def app_icon_body(small: bool = False) -> str:
 
 
 # Wordmark geometry comes from the concept builder (letters built from circles and strokes).
+# Plain letters: the e keeps its crossbar inside its own bowl, and the o carries the brass.
 g = runpy.run_path(str(HERE / "build_concepts.py"))
-to_path, letters = g["to_path"], g["letters"]
-crossbar = letters[-1]
-word_body_geom = unary_union(letters[:-1]).difference(crossbar)
-x0, y0, x1, y1 = unary_union(letters).bounds
+to_path = g["to_path"]
+o_letter, r_letter, d_letter, e_ring, l_letter, _long_crossbar = g["letters"]
+ex0, _, ex1, _ = e_ring.bounds
+e_bowl = g["circle"](g["cx"], g["cy"], g["R_OUT"])
+e_bar = box(ex0 + g["S"] / 2, g["cy"] - g["S"] / 2, ex1, g["cy"] + g["S"] / 2).intersection(e_bowl)
+rest_geom = unary_union([r_letter, d_letter, unary_union([e_ring, e_bar]), l_letter])
+x0, y0, x1, y1 = unary_union([o_letter, rest_geom]).bounds
 WORD_VIEW = (x0, y0, x1 - x0, y1 - y0)
 
 
 def word_body(main: str, accent: str, dx: float = 0, dy: float = 0, scale: float = 1) -> str:
     parts = []
-    for geom, colour in ((word_body_geom, main), (crossbar, accent)):
+    for geom, colour in ((rest_geom, main), (o_letter, accent)):
         geom = affinity.scale(affinity.translate(geom, -x0, -y0), scale, scale, origin=(0, 0))
         parts.append(f'<path fill-rule="evenodd" fill="{colour}" d="{to_path(affinity.translate(geom, dx, dy))}"/>')
     return "".join(parts)
