@@ -2,6 +2,7 @@
 import re
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,8 @@ from . import chains as chainlib
 from .categories import CATEGORIES
 from .library import Library
 from .paths import reaper_dir
-from .reaper_db import Plugin, load_plugins
+from .reaper_db import Plugin, fx_folders, key_of_file, load_plugins
+from .usage import count_usage, project_files
 
 _UNSET = object()
 _PLUGIN_NAME = re.compile(r"^(?:VST3?i?|CLAPi?|DXi?|AUi?): (.*?)(?: \([^()]*\))?$")
@@ -39,13 +41,49 @@ class Api:
         self.plugins: list[Plugin] = load_plugins(self.reaper_dir)
         self.snapshots_dir: Path | None = None
         self.hotkey_ok = True  # set by the app after registering the saved shortcut
+        self.usage: dict[str, int] = {}  # card id -> how many of your projects use it
+        self.usage_projects = 0
+        self._rescan_soon()
 
     def _plugin(self, plugin_id: str) -> Plugin | None:
         return next((p for p in self.plugins if p.id == plugin_id), None)
 
+    def fx_folders(self) -> list[dict]:
+        """Your REAPER FX browser folders, as the Ordel cards they hold."""
+        cards = {key_of_file(k): g.id for g in self.plugins for v in [g, *g.variants] for k in v.keys()}
+        out = []
+        for f in fx_folders(self.reaper_dir):
+            ids = list(dict.fromkeys(cards[k] for k in f["keys"] if k in cards))  # in order, each card once
+            out.append({"id": f["id"], "name": f["name"], "plugins": ids})
+        return out
+
+    def rescan_usage(self) -> None:
+        """Count how many of your REAPER projects use each plugin (any version of it counts once)."""
+        versions = self._versions()
+        folder = self.library.settings.get("projects_folder") or None
+        projects = project_files(self.reaper_dir, Path(folder) if folder else None)
+        self.usage = count_usage(projects, key=lambda name: versions[name][0].id if name in versions else None)
+        self.usage_projects = len(projects)
+
+    def _rescan_soon(self) -> None:
+        threading.Thread(target=self.rescan_usage, daemon=True).start()  # big project folders take a moment
+
+    def choose_projects_folder(self) -> dict:
+        folder = self.hooks["pick_folder"]()
+        if not folder:
+            return {"ok": False}
+        self.library.update_settings(projects_folder=str(folder))
+        self._rescan_soon()
+        return {"ok": True, "folder": str(folder)}
+
     def state(self) -> dict:
+        views = self.library.view(self.plugins)
+        for v in views:
+            v["uses"] = self.usage.get(v["id"], 0)
         return {
-            "plugins": self.library.view(self.plugins),
+            "plugins": views,
+            "usage": {"projects": self.usage_projects},
+            "fx_folders": self.fx_folders(),
             # Yours sit just before Uncategorised, which stays last.
             "categories": CATEGORIES[:-1] + self.library.custom_categories() + CATEGORIES[-1:],
             "settings": dict(self.library.settings),
@@ -76,6 +114,7 @@ class Api:
                 for indexed in (getattr(self.capture, "helper", None), getattr(self.capture, "isolate", None)):
                     getattr(indexed, "use_reaper_dir", lambda folder: None)(found)
         self.plugins = load_plugins(self.reaper_dir)
+        self._rescan_soon()
         return self.state()
 
     def send(self, id: str, variant: str | None = None) -> dict:

@@ -35,8 +35,12 @@ function inView(p, view) {
   if (view === "favourites") return p.favourite;
   if (view === "recent") return p.last_used > 0;
   if (view.startsWith("dev:")) return devOf(p) === view.slice(4);
+  if (view.startsWith("fx:")) return !!folderOf(view)?.plugins.includes(p.id);
   return p.category === view.slice(4);
 }
+
+// A folder you made in REAPER's FX browser (Favorites included), read straight from REAPER.
+const folderOf = (view) => (S.data.fx_folders || []).find((f) => `fx:${f.id}` === view);
 
 // In a category, chips narrow by developer; everywhere else they have chips (a developer, Favourites,
 // Recently used) they narrow by category.
@@ -77,6 +81,7 @@ function visiblePlugins() {
     });
   }
   if (S.view === "recent") list = list.sort((a, b) => b.last_used - a.last_used).slice(0, 30);
+  else if (S.data.settings.sort === "used") list = [...list].sort((a, b) => b.uses - a.uses);  // ties keep A-Z order
   return list;
 }
 
@@ -85,6 +90,7 @@ function viewTitle() {
   if (S.view === "favourites") return "Favourites";
   if (S.view === "recent") return "Recently used";
   if (S.view === "chains") return "Chains";
+  if (S.view.startsWith("fx:")) return folderOf(S.view)?.name || "REAPER folder";
   if (S.view.startsWith("dev:")) return S.view.slice(4);
   return catOf(S.view.slice(4)).label;
 }
@@ -157,6 +163,10 @@ function renderSidebar() {
     navItem("favourites", "Favourites", ps.filter((p) => p.favourite).length, icon("star")) +
     navItem("recent", "Recently used", Math.min(30, ps.filter((p) => p.last_used > 0).length), icon("clock")) +
     navItem("chains", "Chains", chains().filter((c) => !c.hidden).length, icon("chain")));
+  const folders = S.data.fx_folders || [];
+  setHtml($("#nav-folders"), folders.length
+    ? '<div class="nav-heading">REAPER folders</div>' + folders.map((f) => navItem(`fx:${f.id}`, f.name, f.plugins.length, icon("folder"))).join("")
+    : "");
   const mode = S.data.settings.sidebar_mode;
   document.querySelectorAll("#nav-switch [data-mode]").forEach((b) => b.setAttribute("aria-selected", b.dataset.mode === mode));
   setHtml($("#nav-categories"), mode === "developers"
@@ -177,6 +187,12 @@ function renderToolbar() {
   const n = visiblePlugins().length;
   const total = S.data.plugins.filter((p) => inView(p, S.view)).length;
   $("#view-title").textContent = viewTitle();
+  document.querySelectorAll("#sort [data-value]").forEach((b) => {
+    const on = b.dataset.value === S.data.settings.sort;
+    b.setAttribute("aria-selected", on);
+    b.setAttribute("aria-checked", on);
+  });
+  $("#sort").hidden = S.view === "recent" || S.view === "chains";  // those have their own order
   setHtml($("#view-help"), helpButton(helpKey()) + editCategoryButton());
   $("#view-count").textContent = S.view === "chains" ? plural(visibleChains().length, "chain")
     : S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
@@ -253,6 +269,10 @@ function emptyState() {
     return `<div class="glyph">${icon("clock")}</div><h2>Nothing used yet</h2>
       <p>Plugins you add to a track from Ordel show up here.</p>`;
   }
+  if (S.view.startsWith("fx:")) {
+    return `<div class="glyph">${icon("grid")}</div><h2>This folder is empty</h2>
+      <p>Add plugins to it in REAPER's FX browser and they appear here.</p>`;
+  }
   return `<div class="glyph">${icon("grid")}</div><h2>This category is empty</h2>
     <p>Drag a plugin onto a category in the sidebar to move it.</p>`;
 }
@@ -319,6 +339,7 @@ function renderDetail() {
         <div class="field"><span class="k">Category</span>
           <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Category: ${esc(c.label)}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(c.label)}</span><span class="chev"></span></button></div>
         ${p.category !== p.category_auto ? `<div class="field"><span class="k">Detected as ${esc(catOf(p.category_auto).label)}</span><button class="link" data-action="reset-category">Use detected</button></div>` : ""}
+        ${S.data.usage.projects ? `<div class="field"><span class="k">Used in</span><span class="v">${p.uses ? plural(p.uses, "project") : "None of your projects"}</span></div>` : ""}
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
       </div>
       <div class="picture-actions">
@@ -381,6 +402,8 @@ function settingsHtml() {
       <div class="sheet-section"><h3>REAPER</h3>
         <div class="row"><span class="k">${r.connected ? "Connected" : "Not connected"}<small>${r.connected ? "Plugins are added to the selected track" : r.installed ? "Open REAPER, or reconnect" : "Connect to add plugins and capture pictures"}</small></span>
           <button class="btn" data-action="connect">${r.installed ? "Reconnect" : "Connect"}</button></div>
+        <div class="row"><span class="k">Your projects<small>${S.data.settings.projects_folder ? `${plural(S.data.usage.projects, "project")} in ${esc(S.data.settings.projects_folder)}, for Most used` : `Choose the folder your REAPER projects are in, so Ordel can sort by Most used`}</small></span>
+          <button class="btn" data-action="projects-folder">${S.data.settings.projects_folder ? "Change…" : "Choose folder…"}</button></div>
         <div class="row"><span class="k">Plugin list<small>${plural(S.data.plugins.length, "plugin")} from REAPER's last scan</small></span>
           <button class="btn" data-action="refresh">${icon("refresh")}Refresh</button></div>
       </div>
@@ -578,6 +601,7 @@ const actions = {
     load();
   },
   "custom-image": async () => { const r = await api("/api/custom-image", { id: S.selected }); if (r.ok) toast("Picture updated"); load(); },
+  "projects-folder": async () => { const r = await api("/api/projects-folder", {}); if (r.ok) toast("Counting your projects…"); setTimeout(load, 1500); },
   "capture-new": async () => { await api("/api/capture", { action: "capture_new" }); load(); },
   "dismiss-new": async () => { await api("/api/capture", { action: "dismiss_new" }); load(); },
   "capture-missing": async () => { await api("/api/capture", { action: "start" }); load(); },
@@ -748,14 +772,15 @@ $("#open-settings").innerHTML = icon("sliders");
 document.querySelector('[data-window="minimize"]').innerHTML = icon("minus");
 document.querySelector('[data-window="hide"]').innerHTML = icon("close");
 
-(async () => {
+// Start once every script (chains.js, tour.js…) has loaded: the first draw uses them all.
+document.addEventListener("DOMContentLoaded", async () => {
   await load();
   if (!S.data) return setTimeout(() => location.reload(), 1000);
   S.view = S.data.settings.last_view || "all";
-  if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|dev):/.test(S.view)) S.view = "all";
+  if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|dev|fx):/.test(S.view)) S.view = "all";
   render();
   if (!S.data.settings.onboarded) showSheet("welcome");
   else if (!S.data.settings.toured) startTour();
   setTimeout(poll, 3000);
   window.addEventListener("focus", () => { if (tour.at < 0) $("#search").focus(); });  // not under the tour
-})();
+});

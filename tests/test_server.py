@@ -327,3 +327,46 @@ def test_custom_categories_appear_before_uncategorised(env):
     pid = api.plugins[0].id
     assert post(base + "/api/plugin", {"id": pid, "category": created["key"]})[0] == 200
     assert post(base + "/api/category", {"action": "explode"})[0] == 400
+
+
+def test_plugins_are_counted_across_your_projects_folder(env, tmp_path):
+    _, api, *_ = env
+    folder = tmp_path / "Projects"
+    (folder / "Song").mkdir(parents=True)
+    (folder / "Song" / "Song.rpp").write_text('<VST "VST: ReaComp (Cockos)" reacomp.dll 0\n>\n')
+    (folder / "Mix.rpp").write_text('<VST "VST: ReaComp (Cockos)" reacomp.dll 0\n>\n'
+                                    '<VST "VST: AmpliTube 5 (IK Multimedia)" a.dll 0\n>\n')
+    api.hooks["pick_folder"] = lambda: str(folder)
+    assert api.choose_projects_folder() == {"ok": True, "folder": str(folder)}
+    api.rescan_usage()  # also runs in the background after choosing
+    state = api.state()
+    assert find(api, "ReaComp")["uses"] == 2 and find(api, "AmpliTube 5")["uses"] == 1  # VST version counts too
+    assert find(api, "Vital")["uses"] == 0
+    assert state["usage"]["projects"] == 2 and state["settings"]["projects_folder"] == str(folder)
+
+
+def test_cancelling_the_folder_picker_changes_nothing(env):
+    _, api, *_ = env
+    api.hooks["pick_folder"] = lambda: None
+    assert api.choose_projects_folder() == {"ok": False}
+    assert api.library.settings["projects_folder"] == ""
+
+
+def test_most_used_sort_is_a_setting(env):
+    _, api, *_ = env
+    assert api.update_settings(sort="used")["settings"]["sort"] == "used"
+    assert api.update_settings(sort="nonsense")["settings"]["sort"] == "used"  # unknown values ignored
+
+
+def test_reaper_fx_folders_show_the_matching_cards(env, tmp_path):
+    import shutil
+    _, api, *_ = env
+    reaper = tmp_path / "reaper"
+    shutil.copytree(FIX, reaper)
+    (reaper / "reaper-fxfolders.ini").write_text(
+        "[Folder0]\nItem0=C:/VstPlugIns/AmpliTube 5.dll\nItem1=C:/x/reacomp.dll\nItem2=C:/x/Gone.dll\nNb=3\n"
+        "[Folders]\nId0=0\nName0=Mix bus\nNbFolders=1\n")
+    api.reaper_dir = reaper
+    folder, = api.state()["fx_folders"]
+    names = {p.id: p.name for p in api.plugins}
+    assert folder["name"] == "Mix bus" and sorted(names[i] for i in folder["plugins"]) == ["AmpliTube 5", "ReaComp"]

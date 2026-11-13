@@ -151,3 +151,41 @@ def test_same_name_different_developer_is_not_grouped():
     from studio_hub.reaper_db import group_variants
     groups = group_variants([make("Comp", "Acme"), make("Comp (Mono)", "Other Co")])
     assert sorted(g.name for g in groups) == ["Comp", "Comp (Mono)"] and all(not g.variants for g in groups)
+
+
+FOLDERS = r"""[Folder0]
+Item0=C:\Program Files\Common Files\VST3\AmpliTube 5.vst3\Contents\x86_64-win\AmpliTube 5.vst3
+Nb=1
+Type0=3
+
+[Folder1]
+Item0=C:\Program Files\VstPlugIns\AmpliTube 5.dll
+Item1=C:\Program Files\VstPlugIns\WaveShell1-VST3 14.12_x64.vst3<1588611046
+Item2=C:\Plugins\Not Installed.dll
+Nb=3
+Type0=3
+Type1=3
+Type2=3
+
+[Folders]
+Id0=0
+Id1=1
+Name0=Favorites
+Name1=Test
+NbFolders=2
+"""
+
+
+def test_reaper_fx_folders_are_read_as_plugin_file_keys(tmp_path):
+    from studio_hub.reaper_db import fx_folders, key_of_file
+    (tmp_path / "reaper-fxfolders.ini").write_text(FOLDERS)
+    folders = fx_folders(tmp_path)
+    assert [f["name"] for f in folders] == ["Favorites", "Test"]
+    assert folders[1]["keys"] == [key_of_file("AmpliTube_5.dll"), key_of_file("WaveShell1_VST3_14.12_x64.vst3<1588611046"),
+                                  key_of_file("Not_Installed.dll")]
+    assert fx_folders(tmp_path / "none") == []
+
+
+def test_a_card_knows_every_file_behind_it():
+    amp = by_name(load_plugins(FIX))["AmpliTube 5"]  # VST3 shown, VST2 merged into it
+    assert sorted(amp.keys()) == ["AmpliTube_5.dll", "AmpliTube_5.vst3"]

@@ -272,6 +272,9 @@ h1 {
 .search input::placeholder { color: var(--text-3); }
 .search input::-webkit-search-cancel-button { filter: grayscale(1) opacity(.6); }
 .size input { width: 96px; accent-color: var(--text-2); }
+.sort { margin: 0; flex: none; }
+.sort button { padding: 0 10px; white-space: nowrap; }
+.sort[hidden] { display: none; }
 
 .capture-bar, .banner {
   margin: 0 24px 10px;

@@ -23,9 +23,15 @@ class Plugin:
     add_name: str
     reaper_tags: list[str] = field(default_factory=list)
     alternates: list[str] = field(default_factory=list)
+    other_keys: list[str] = field(default_factory=list)  # cache keys of the formats merged into this card
     key: str = ""  # REAPER's cache key, e.g. 'FabFilter_Micro.vst3' or 'WaveShell1_VST3_14.12_x64.vst3<1588611046'
     variant: str = "Stereo"  # this version's label, e.g. 'Mono'
     variants: list["Plugin"] = field(default_factory=list)  # the other versions shown under this one
+
+
+    def keys(self) -> list[str]:
+        """Every cache key behind this card's version: its own format plus merged ones (e.g. the VST2)."""
+        return [self.key, *self.other_keys]
 
 
 _VARIANT = re.compile(r"^(.*\S)\s+\((mono|stereo|sc|sidechain|mono sc|mono sidechain|(\d+) out|(\d+)ch)\)$",
@@ -85,6 +91,29 @@ def tidy_developer(vendor: str) -> str:
     """Display name for a developer: 'Valhalla DSP, LLC' -> 'Valhalla DSP', 'Universal Audio (UADx)' -> 'Universal Audio'."""
     name = re.sub(r"\s*\([^()]*\)", "", vendor).strip()
     return _COMPANY_SUFFIX.sub("", name).strip() or vendor.strip()
+
+
+def key_of_file(path: str) -> str:
+    """A plugin file, as REAPER's FX folders list it (full path), in the form REAPER's cache keys use."""
+    return _norm_file(re.split(r"[\\/]", path)[-1])
+
+
+def fx_folders(reaper_dir: Path) -> list[dict]:
+    """The folders (Favorites included) you made in REAPER's FX browser: id, name and plugin file keys."""
+    ini = _read_ini(Path(reaper_dir) / "reaper-fxfolders.ini")
+    if not ini.has_section("Folders"):
+        return []
+    top = dict(ini.items("Folders"))
+    out = []
+    for n in range(int(top.get("NbFolders", "0") or 0)):
+        fid, name = top.get(f"Id{n}"), top.get(f"Name{n}")
+        section = f"Folder{fid}"
+        if fid is None or not name or not ini.has_section(section):
+            continue
+        items = dict(ini.items(section))
+        keys = [key_of_file(items[f"Item{i}"]) for i in range(int(items.get("Nb", "0") or 0)) if items.get(f"Item{i}")]
+        out.append({"id": fid, "name": name, "keys": keys})
+    return out
 
 
 def _norm_file(name: str) -> str:
@@ -195,6 +224,7 @@ def load_plugins(reaper_dir: Path) -> list[Plugin]:
             continue
         keep, other = sorted([current, plugin], key=lambda p: FORMAT_PRIORITY[p.format])
         keep.alternates = current.alternates + plugin.alternates + [other.add_name]
+        keep.other_keys = current.other_keys + plugin.other_keys + [other.key]
         keep.reaper_tags = keep.reaper_tags or other.reaper_tags
         best[dedupe] = keep
     return sorted(group_variants(list(best.values())), key=lambda p: p.name.lower())

@@ -22,7 +22,7 @@ def main() -> None:
                             isolate=Isolation(reaper_dir(), data_dir()))
     noop = lambda *a: None
     api = Api(reaper_dir(), library, bridge, capture,
-              {"hide": noop, "minimize": noop, "quit": noop, "resize": noop, "pick_image": noop, "set_hotkey": lambda c: True})
+              {"hide": noop, "minimize": noop, "quit": noop, "resize": noop, "pick_image": noop, "pick_folder": noop, "set_hotkey": lambda c: True})
     server = make_server(api, resource("ui"), snapshots_dir(), int(sys.argv[1]) if len(sys.argv) > 1 else 0)
     print(f"http://127.0.0.1:{server.server_address[1]}/", flush=True)
     server.serve_forever()

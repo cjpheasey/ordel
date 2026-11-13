@@ -107,7 +107,7 @@ class App:
         self.api = Api(reaper_dir(), self.library, self.bridge, self.capture, {
             "show": self.show, "hide": self.hide, "minimize": self.minimize, "quit": self.quit,
             "resize": self.resize,
-            "pick_image": self.pick_image, "set_hotkey": self.set_hotkey,
+            "pick_image": self.pick_image, "pick_folder": self.pick_folder, "set_hotkey": self.set_hotkey,
         })
         try:
             self.api.refresh_bridge()
@@ -191,6 +191,10 @@ class App:
     def pick_image(self) -> str | None:
         result = self.window.create_file_dialog(
             webview.FileDialog.OPEN, file_types=("Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)",))
+        return result[0] if result else None
+
+    def pick_folder(self) -> str | None:
+        result = self.window.create_file_dialog(webview.FileDialog.FOLDER)
         return result[0] if result else None
 
     def set_hotkey(self, combo: str) -> bool:

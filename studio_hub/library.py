@@ -28,6 +28,8 @@ DEFAULT_SETTINGS = {
     "density": "comfortable",
     "corners": "rounded",
     "show_developer": True,
+    "sort": "name",
+    "projects_folder": "",  # where your REAPER projects live; counts how often each plugin is used
 }
 # Colours for categories you make yourself, in order; picked so they sit apart from the built-in ones.
 CUSTOM_COLOURS = ["#F2A7C3", "#7FD1AE", "#F5B971", "#9DB4FF", "#C9A15A", "#E07A5F", "#81B29A", "#B8A1E3"]
@@ -40,6 +42,7 @@ CHOICES = {
     "picture_fit": {"contain", "cover"},
     "density": {"comfortable", "compact"},
     "corners": {"rounded", "square"},
+    "sort": {"name", "used"},
 }
 
 

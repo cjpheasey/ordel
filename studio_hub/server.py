@@ -26,6 +26,7 @@ def make_server(api: Api, ui_dir: Path, snapshots_dir: Path, port: int = 0) -> T
         "/api/bridge/install": lambda b: api.install_bridge(),
         "/api/window": lambda b: api.window(b["action"]),
         "/api/chain": lambda b: api.chain_action(**b),
+        "/api/projects-folder": lambda b: api.choose_projects_folder(),
         "/api/category": lambda b: api.category_action(**b),
     }
 

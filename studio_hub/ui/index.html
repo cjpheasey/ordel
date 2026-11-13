@@ -26,6 +26,7 @@
   <div class="shell">
     <nav class="sidebar" aria-label="Library">
       <div class="nav-group" id="nav-library"></div>
+      <div class="nav-group" id="nav-folders"></div>
       <div class="seg" id="nav-switch" role="tablist" aria-label="Browse by">
         <button role="tab" data-mode="categories">Categories</button>
         <button role="tab" data-mode="developers">Developers</button>
@@ -45,6 +46,10 @@
           <span id="view-help"></span>
         </div>
         <div class="tools">
+          <span class="seg sort" id="sort" role="radiogroup" aria-label="Sort by">
+            <button role="radio" data-setting="sort" data-value="name">A–Z</button>
+            <button role="radio" data-setting="sort" data-value="used">Most used</button>
+          </span>
           <label class="size" title="Picture size">
             <span class="sr-only">Picture size</span>
             <input type="range" id="tile-size" min="160" max="480" step="10">
