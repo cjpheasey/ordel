@@ -10,6 +10,7 @@ a = Analysis(
         (str(ROOT / "studio_hub" / "ui"), "studio_hub/ui"),
         (str(ROOT / "studio_hub" / "reaper"), "studio_hub/reaper"),
         (str(ROOT / "studio_hub" / "assets"), "studio_hub/assets"),
+        (str(ROOT / "studio_hub" / "data"), "studio_hub/data"),
     ],
     hiddenimports=["pystray._win32", "webview.platforms.edgechromium", "webview.platforms.winforms"],
 )

@@ -225,6 +225,29 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 }
 .tag.uncat { background: none; border: 1.5px dashed var(--text-3); }
 .nav-item .tag { margin: 0 3px; }
+/* Subgroups of the open group, indented under it (no colour square of their own). */
+.nav-item.nav-sub { height: 26px; padding-left: 33px; color: var(--text-2); font-size: 12.5px; }
+.nav-item.nav-sub[aria-current="true"] { color: var(--text); }
+/* Inside a group, the developer narrows from a small menu at the end of the chip row. */
+.dev-menu {
+  margin-left: auto; height: 26px; padding: 0 8px; border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text); font: inherit; font-size: 12px;
+}
+.chip.drop-target { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* "Move to Limiters" beside whatever a dragged card is over. */
+.drop-label {
+  position: fixed; z-index: 50; pointer-events: none; white-space: nowrap;
+  padding: 4px 9px; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--accent-text); font-size: 12px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.field-pick {
+  max-width: 60%; height: 28px; padding: 0 6px; border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text); font: inherit;
+}
+.sub .char { white-space: nowrap; }
+.sub .char::before { content: "· "; color: var(--text-3); }
+body[data-developer="off"] .sub .char::before { content: none; }
 
 .sidebar-foot {
   margin-top: auto;
@@ -247,10 +270,11 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .toolbar {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 16px;
   padding: 12px 24px 10px;
+  flex-wrap: wrap;  /* with the details open, the tools drop below the title rather than squash it */
 }
-.heading { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.heading { display: flex; align-items: baseline; gap: 12px; min-width: 0; flex: 1 1 180px; }
 h1 {
   margin: 0;
   font: 600 20px/1.2 var(--font-display);

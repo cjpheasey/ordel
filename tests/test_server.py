@@ -370,3 +370,36 @@ def test_reaper_fx_folders_show_the_matching_cards(env, tmp_path):
     folder, = api.state()["fx_folders"]
     names = {p.id: p.name for p in api.plugins}
     assert folder["name"] == "Mix bus" and sorted(names[i] for i in folder["plugins"]) == ["AmpliTube 5", "ReaComp"]
+
+
+def test_plugin_update_subgroup_and_character(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    assert post(base + "/api/plugin", {"id": pid, "subgroup": "compressors", "character": "vca"})[0] == 200
+    item = find(api, "ReaComp")
+    assert (item["subgroup"], item["character"], item["sorted_by"]) == ("compressors", "vca", "you")
+    assert post(base + "/api/plugin", {"id": pid, "subgroup": "limiters"})[0] == 200
+    assert find(api, "ReaComp")["character"] is None
+    assert "subgroups" in api.state() and api.state()["subgroups"]["dynamics"][0]["key"] == "compressors"
+
+
+def test_subgroup_must_belong_to_the_group(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    assert post(base + "/api/plugin", {"id": pid, "subgroup": "plate"})[0] == 400
+    assert post(base + "/api/plugin", {"id": pid, "subgroup": "limiters", "character": "fet"})[0] == 400
+    assert post(base + "/api/plugin", {"id": pid, "category": "reverb", "subgroup": "plate"})[0] == 200
+    assert find(api, "ReaComp")["subgroup"] == "plate"
+
+
+def test_dropping_on_its_own_group_keeps_hand_set_type_and_character(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    post(base + "/api/plugin", {"id": pid, "subgroup": "compressors", "character": "fet"})
+    assert post(base + "/api/plugin", {"id": pid, "category": "dynamics", "subgroup": "compressors"})[0] == 200
+    assert find(api, "ReaComp")["character"] == "fet"
+    post(base + "/api/plugin", {"id": pid, "subgroup": "limiters"})
+    post(base + "/api/plugin", {"id": pid, "category": "dynamics"})
+    assert find(api, "ReaComp")["subgroup"] == "limiters"
+    post(base + "/api/plugin", {"id": pid, "category": None})  # Use detected still resets everything
+    assert find(api, "ReaComp")["sorted_by"] == "ordel"

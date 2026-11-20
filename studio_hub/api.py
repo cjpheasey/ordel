@@ -15,6 +15,7 @@ from .categories import CATEGORIES
 from .library import Library
 from .paths import reaper_dir
 from .reaper_db import Plugin, fx_folders, key_of_file, load_plugins
+from .subgroups import SUBGROUPS
 from .usage import count_usage, project_files
 
 _UNSET = object()
@@ -84,6 +85,7 @@ class Api:
             "plugins": views,
             "usage": {"projects": self.usage_projects},
             "fx_folders": self.fx_folders(),
+            "subgroups": SUBGROUPS,
             # Yours sit just before Uncategorised, which stays last.
             "categories": CATEGORIES[:-1] + self.library.custom_categories() + CATEGORIES[-1:],
             "settings": dict(self.library.settings),
@@ -132,14 +134,31 @@ class Api:
                 self.hooks["hide"]()
         return {"ok": ok, "detail": detail}
 
-    def update_plugin(self, id: str, favourite=None, category=_UNSET) -> dict:
-        if self._plugin(id) is None:
+    def update_plugin(self, id: str, favourite=None, category=_UNSET, subgroup=_UNSET, character=_UNSET) -> dict:
+        plugin = self._plugin(id)
+        if plugin is None:
             raise ValueError("unknown plugin")
-        others = [v.id for v in self._plugin(id).variants]
+        others = [v.id for v in plugin.variants]
         if favourite is not None:
             self.library.set_favourite(id, favourite, also=others)
-        if category is not _UNSET:
+        # Dropping a plugin on the group it's already in must not wipe the Type or Character set by hand.
+        if category is not _UNSET and (category is None or category != self.library.view([plugin])[0]["category"]):
             self.library.set_category(id, category, also=others)
+        if subgroup is not _UNSET or character is not _UNSET:
+            view = self.library.view([plugin])[0]
+            subs = {s["key"]: s for s in SUBGROUPS.get(view["category"], [])}
+            if subgroup is not _UNSET:
+                if subgroup is not None and subgroup not in subs:
+                    raise ValueError("that type isn't in this plugin's group")
+                self.library.set_subgroup(id, subgroup, also=others)
+            sub = view["subgroup"] if subgroup is _UNSET else subgroup or view["subgroup_auto"]
+            allowed = {c["key"] for c in subs[sub]["characters"]} if sub in subs else set()
+            if character is not _UNSET:
+                if character is not None and character not in allowed:
+                    raise ValueError("that character doesn't apply to this type")
+                self.library.set_character(id, character, also=others)
+            elif not allowed:
+                self.library.set_character(id, None, also=others)
         return {"ok": True}
 
     # ---------- chains ----------

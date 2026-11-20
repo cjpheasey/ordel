@@ -10,7 +10,9 @@ const TOUR_STEPS = [
   {
     target: "#nav-switch",
     title: "Browse your way",
-    body: () => "Switch between categories and developers. Plugins with Mono or sidechain versions show once; pick the version in its details.",
+    body: () => "Switch between categories and developers. Plugins with Mono or sidechain versions show once; pick the version in its details. "
+      + "Ordel sorts plugins using what developers tell REAPER, plus its own knowledge of well-known plugins. "
+      + "It won't get every one right: drag a plugin onto any group to move it, and Ordel remembers.",
   },
   {
     target: ".search",

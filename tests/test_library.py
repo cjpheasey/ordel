@@ -268,3 +268,73 @@ def test_deleting_a_category_sends_its_plugins_back_to_their_detected_category(t
     lib.set_category(plugin().id, key)
     lib.delete_category(key)
     assert lib.custom_categories() == [] and lib.view([plugin()])[0]["category"] == "dynamics"
+
+
+def comp(name="FabFilter Pro-C 2"):
+    return Plugin("abc123abc123", name, "FabFilter", "VST3", False, f"VST3: {name} (FabFilter)", ["Dynamics"])
+
+
+def test_subgroup_and_character_detected_by_default(tmp_path):
+    v = Library(tmp_path / "l.json").view([comp("UADx 1176AE Compressor")])[0]
+    assert (v["subgroup"], v["character"], v["sorted_by"]) == ("compressors", "fet", "ordel")
+    assert (v["subgroup_auto"], v["character_auto"]) == ("compressors", "fet")
+
+
+def test_hand_set_group_survives_and_gets_a_subgroup_inside_it(tmp_path):
+    path = tmp_path / "l.json"
+    path.write_text(json.dumps({"version": 1, "plugins": {"abc123abc123": {"category": "reverb"}}}))
+    v = Library(path).view([comp("Plate Thing")])[0]
+    assert (v["category"], v["subgroup"], v["sorted_by"]) == ("reverb", "plate", "you")
+
+
+def test_custom_category_has_no_subgroup(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    key = lib.add_category("Vocal Chain")["key"]
+    lib.set_category("abc123abc123", key)
+    v = lib.view([comp()])[0]
+    assert v["category"] == key and v["subgroup"] is None and v["character"] is None
+
+
+def test_subgroup_set_on_a_group_covers_its_versions(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_subgroup(MONO, "gates")
+    assert lib.view([group()])[0]["subgroup"] == "gates"
+    lib.set_subgroup(MAIN, "limiters", also=[MONO])
+    assert lib.view([group()])[0]["subgroup"] == "limiters" and "subgroup" not in lib._plugins[MONO]
+
+
+def test_leaving_compressors_drops_the_character(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_character("abc123abc123", "tube")
+    assert lib.view([comp()])[0]["character"] == "tube"
+    lib.set_subgroup("abc123abc123", "limiters")
+    v = lib.view([comp()])[0]
+    assert v["subgroup"] == "limiters" and v["character"] is None
+
+
+def test_moving_group_detects_subgroup_afresh(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_subgroup("abc123abc123", "gates")
+    lib.set_character("abc123abc123", "vca")
+    lib.set_category("abc123abc123", "reverb")
+    v = lib.view([comp("Spring Thing")])[0]
+    assert (v["category"], v["subgroup"], v["character"]) == ("reverb", "spring", None)
+    assert "subgroup" not in lib._plugins["abc123abc123"]
+
+
+def test_deleting_a_custom_category_clears_subgroup_too(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    key = lib.add_category("Mine")["key"]
+    lib.set_category("abc123abc123", key)
+    lib._plugins["abc123abc123"]["subgroup"] = "gates"
+    lib.delete_category(key)
+    assert lib.view([comp()])[0]["subgroup"] == "compressors"
+
+
+def test_existing_library_json_loads_unchanged(tmp_path):
+    path = tmp_path / "l.json"
+    record = {"category": "eq", "favourite": True, "capture": "ok", "shot": 5, "last_used": 3}
+    path.write_text(json.dumps({"version": 1, "plugins": {"abc123abc123": record}}))
+    lib = Library(path)
+    lib.mark_used("other0000000")
+    assert {k: json.loads(path.read_text())["plugins"]["abc123abc123"][k] for k in record} == record

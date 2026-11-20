@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const S = { data: null, view: "all", chip: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false, versions: {} };
+const S = { data: null, view: "all", chip: null, developer: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false, versions: {} };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -29,6 +29,16 @@ const hasPicture = (p) => p.capture === "ok" || p.capture === "custom";
 
 const devOf = (p) => p.developer || "Unknown developer";
 
+// Subgroups (Compressors, Limiters…) inside a group, and characters (FET, Optical…) inside a subgroup.
+const subsOf = (group) => (S.data.subgroups || {})[group] || [];
+function subView(view) {
+  const [g, k] = view.slice(4).split("/");
+  return { g, k, sub: subsOf(g).find((s) => s.key === k) };
+}
+// "cat:dynamics" and "sub:dynamics/limiters" both belong to Dynamics.
+const viewGroup = (view = S.view) => (view.startsWith("cat:") ? view.slice(4) : view.startsWith("sub:") ? subView(view).g : null);
+const characterOf = (p) => subsOf(p.category).find((s) => s.key === p.subgroup)?.characters.find((c) => c.key === p.character);
+
 function inView(p, view) {
   if (view === "all") return true;
   if (view === "chains") return false;
@@ -36,33 +46,49 @@ function inView(p, view) {
   if (view === "recent") return p.last_used > 0;
   if (view.startsWith("dev:")) return devOf(p) === view.slice(4);
   if (view.startsWith("fx:")) return !!folderOf(view)?.plugins.includes(p.id);
+  if (view.startsWith("sub:")) { const { g, k } = subView(view); return p.category === g && p.subgroup === k; }
   return p.category === view.slice(4);
 }
 
 // A folder you made in REAPER's FX browser (Favorites included), read straight from REAPER.
 const folderOf = (view) => (S.data.fx_folders || []).find((f) => `fx:${f.id}` === view);
 
-// In a category, chips narrow by developer; everywhere else they have chips (a developer, Favourites,
-// Recently used) they narrow by category.
-const chipsByCategory = () => !S.view.startsWith("cat:");
+// One row of chips at most. Inside a subgroup with characters (Compressors) they narrow by character; elsewhere in
+// a group there are none (the Developer menu narrows instead); everywhere else (a developer, Favourites, Recently
+// used, a REAPER folder) they narrow by category.
+const chipKind = () => (!viewGroup() ? "category" : S.view.startsWith("sub:") && subView(S.view).sub?.characters.length ? "character" : null);
 
 function chipMatches(p) {
+  if (S.developer && viewGroup() && devOf(p) !== S.developer) return false;
   if (!S.chip) return true;
-  return chipsByCategory() ? p.category === S.chip : devOf(p) === S.chip;
+  return chipKind() === "character" ? p.character === S.chip : p.category === S.chip;
 }
 
 function chipOptions() {
-  if (S.view === "all" || S.view === "chains") return [];  // the sidebar already lists every category
-  const byDev = chipsByCategory();
-  const counts = new Map();
-  for (const p of S.data.plugins.filter((x) => inView(x, S.view))) {
-    const key = byDev ? p.category : devOf(p);
-    counts.set(key, (counts.get(key) || 0) + 1);
+  const kind = chipKind();
+  if (S.view === "all" || S.view === "chains" || !kind) return [];  // the sidebar already lists every category
+  const inThis = S.data.plugins.filter((x) => inView(x, S.view) && (!S.developer || devOf(x) === S.developer));
+  if (kind === "character") {
+    return subView(S.view).sub.characters
+      .map((c) => ({ key: c.key, label: c.label, n: inThis.filter((p) => p.character === c.key).length }))
+      .filter((o) => o.n > 0);
   }
-  const options = [...counts].map(([key, n]) => ({ key, n, label: byDev ? catOf(key).label : key }));
-  return byDev
-    ? options.sort((a, b) => cats().findIndex((c) => c.key === a.key) - cats().findIndex((c) => c.key === b.key))
-    : options.sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+  const counts = new Map();
+  for (const p of inThis) counts.set(p.category, (counts.get(p.category) || 0) + 1);
+  return [...counts].map(([key, n]) => ({ key, n, label: catOf(key).label }))
+    .sort((a, b) => cats().findIndex((c) => c.key === a.key) - cats().findIndex((c) => c.key === b.key));
+}
+
+// Inside a group, developers are a menu rather than chips, so the chip row never doubles up.
+function developerMenu() {
+  if (!viewGroup()) return "";
+  const counts = new Map();
+  for (const p of S.data.plugins.filter((x) => inView(x, S.view))) counts.set(devOf(p), (counts.get(devOf(p)) || 0) + 1);
+  if (counts.size < 2 && !S.developer) return "";
+  if (S.developer && !counts.has(S.developer)) counts.set(S.developer, 0);  // its last plugin moved away: keep it pickable so it can be cleared
+  const devs = [...counts].sort((a, b) => a[0].localeCompare(b[0]));
+  return `<select id="developer-menu" class="dev-menu" aria-label="Developer"><option value="">All developers</option>${
+    devs.map(([d, n]) => `<option value="${esc(d)}"${d === S.developer ? " selected" : ""}>${esc(d)} (${n})</option>`).join("")}</select>`;
 }
 
 function developers() {
@@ -92,6 +118,7 @@ function viewTitle() {
   if (S.view === "chains") return "Chains";
   if (S.view.startsWith("fx:")) return folderOf(S.view)?.name || "REAPER folder";
   if (S.view.startsWith("dev:")) return S.view.slice(4);
+  if (S.view.startsWith("sub:")) return subView(S.view).sub?.label || catOf(subView(S.view).g).label;
   return catOf(S.view.slice(4)).label;
 }
 
@@ -124,11 +151,12 @@ const versionSwitch = (p, cls = "") => `<span class="seg version-switch ${cls}" 
 const HELP = {
   library: "All the plugins REAPER has found on your computer, each with a picture. Double-click one to put it on the selected track. Drag a card onto a category to move it.",
   favourites: "Plugins you've starred. Select one and press F to star or unstar it. The chips narrow it down by category.",
+  group: "Sorted automatically. Something in the wrong place? Drag it onto the right group.",
   recent: "The last plugins you added from Ordel, newest first.",
   chains: "Save a chain from the selected REAPER track. Click a chain to put it on the selected track, or use its edit button to change it. Turn on 'Use as return track' to make it a send.",
   settings: "Themes, your shortcut, pictures and the REAPER connection. New plugin not showing? Restart REAPER so it scans it, then refresh.",
 };
-const helpKey = () => (["favourites", "recent", "chains"].includes(S.view) ? S.view : "library");
+const helpKey = () => (["favourites", "recent", "chains"].includes(S.view) ? S.view : viewGroup() ? "group" : "library");
 const helpButton = (key) => `<span class="help"><button class="help-btn" aria-label="About this page" aria-describedby="help-${key}">${icon("help")}</button><span class="help-pop" role="tooltip" id="help-${key}">${esc(HELP[key])}</span></span>`;
 
 /* ---------- rendering ---------- */
@@ -140,7 +168,7 @@ function render() {
     theme: st.theme, accent: st.accent, fit: st.picture_fit, density: st.density, corners: st.corners,
     developer: st.show_developer ? "on" : "off", page: S.view === "chains" ? "chains" : "plugins",
   });
-  const viewCat = S.view.startsWith("cat:") ? catOf(S.view.slice(4)).color : "#5e5ce6";
+  const viewCat = viewGroup() ? catOf(viewGroup()).color : "#5e5ce6";
   document.documentElement.style.setProperty("--cat", viewCat);
   document.documentElement.style.setProperty("--tile", `${S.data.settings.tile_size}px`);
   renderSidebar();
@@ -151,9 +179,19 @@ function render() {
   renderDetail();
 }
 
-function navItem(view, label, n, lead) {
+function navItem(view, label, n, lead, cls = "") {
   const current = S.view === view ? ' aria-current="true"' : "";
-  return `<button class="nav-item" data-view="${view}"${current}>${lead}<span class="label">${esc(label)}</span><span class="n">${n}</span></button>`;
+  return `<button class="nav-item${cls}" data-view="${view}"${current}>${lead}<span class="label">${esc(label)}</span><span class="n">${n}</span></button>`;
+}
+
+// The open group lists its subgroups underneath it (empty ones hidden).
+function subgroupItems(group) {
+  if (viewGroup() !== group) return "";
+  return subsOf(group)
+    .map((s) => ({ s, n: S.data.plugins.filter((p) => p.category === group && p.subgroup === s.key).length }))
+    .filter(({ n }) => n > 0)
+    .map(({ s, n }) => navItem(`sub:${group}/${s.key}`, s.label, n, "", " nav-sub"))
+    .join("");
 }
 
 function renderSidebar() {
@@ -175,7 +213,7 @@ function renderSidebar() {
       .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
       .filter(({ c, n }) => n > 0 || c.custom || S.view === `cat:${c.key}`)  // yours show even when empty
       .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
-        `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`))
+        `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`) + subgroupItems(c.key))
       .join("") + newCategoryRow());
 
   const r = S.data.reaper;
@@ -195,21 +233,24 @@ function renderToolbar() {
   $("#sort").hidden = S.view === "recent" || S.view === "chains";  // those have their own order
   setHtml($("#view-help"), helpButton(helpKey()) + editCategoryButton());
   $("#view-count").textContent = S.view === "chains" ? plural(visibleChains().length, "chain")
-    : S.chip && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
+    : (S.chip || S.developer) && !S.query ? `${n} of ${plural(total, "plugin")}` : plural(n, "plugin");
   renderChips(total);
   if (document.activeElement !== $("#tile-size")) $("#tile-size").value = S.data.settings.tile_size;  // not mid-drag
 }
 
 function renderChips(total) {
   const options = chipOptions();
+  const menu = developerMenu();
   const el = $("#chips");
-  el.hidden = options.length < 2;  // nothing to narrow down to
+  const chips = options.length >= 2 || S.chip;  // else nothing to narrow down to
+  el.hidden = !chips && !menu;
   if (el.hidden) return;
-  const byDev = chipsByCategory();
+  const byCat = chipKind() === "category";
   const chip = (key, label, n, lead = "") =>
     `<button class="chip" data-chip="${esc(key)}" aria-pressed="${(S.chip || "") === key}">${lead}${esc(label)} <b>${n}</b></button>`;
-  setHtml(el, chip("", "All", total) + options.map((o) =>
-    chip(o.key, o.label, o.n, byDev ? `<span class="tag" style="--c:${catOf(o.key).color}"></span>` : "")).join(""));
+  const all = S.developer ? S.data.plugins.filter((p) => inView(p, S.view) && devOf(p) === S.developer).length : total;
+  setHtml(el, (chips ? chip("", "All", all) + options.map((o) =>
+    chip(o.key, o.label, o.n, byCat ? `<span class="tag" style="--c:${catOf(o.key).color}"></span>` : "")).join("") : "") + menu);
 }
 
 function renderBanners() {
@@ -273,6 +314,10 @@ function emptyState() {
     return `<div class="glyph">${icon("grid")}</div><h2>This folder is empty</h2>
       <p>Add plugins to it in REAPER's FX browser and they appear here.</p>`;
   }
+  if (S.chip || S.developer) {
+    return `<div class="glyph">${icon("grid")}</div><h2>Nothing matches</h2>
+      <p>No plugins here match what you've picked above.</p>`;
+  }
   return `<div class="glyph">${icon("grid")}</div><h2>This category is empty</h2>
     <p>Drag a plugin onto a category in the sidebar to move it.</p>`;
 }
@@ -287,7 +332,7 @@ function cardHtml(p) {
   return `<li><button class="card" data-id="${p.id}" aria-selected="${sel}" draggable="true" title="${esc(p.name)}">
     <div class="art" style="--c:${c.color}">${art}${p.favourite ? `<span class="fav">${icon("star")}</span>` : ""}</div>
     <div class="meta"><span class="name">${esc(p.name)}</span>
-      <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(devOf(p))}</span>${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
+      <span class="sub"><span class="tag" style="--c:${c.color}"></span><span class="vendor">${esc(devOf(p))}</span>${characterOf(p) ? `<span class="char">${esc(characterOf(p).label)}</span>` : ""}${p.format !== "VST3" ? `<span class="fmt">${p.format}</span>` : ""}</span>
     </div></button>
     <button class="card-add" data-add="${p.id}" aria-label="Add ${esc(p.name)} to track" title="Add to track">${icon("plus")}</button>${p.variants.length ? versionSwitch(p, "on-card") : ""}</li>`;
 }
@@ -296,7 +341,7 @@ function renderGrid() {
   if (S.view === "chains") return renderChains();
   $("#grid").classList.remove("chain-grid");
   const list = visiblePlugins();
-  const sig = S.view + "|" + S.chip + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}${versionOf(p)}`).join(",");
+  const sig = S.view + "|" + S.chip + "|" + S.developer + "|" + S.query + "|" + list.map((p) => `${p.id}${p.capture}${p.shot || 0}${p.favourite ? 1 : 0}${p.category}${p.subgroup}${p.character}${versionOf(p)}`).join(",");
   if (sig !== S.gridSig) {
     const focused = document.activeElement?.dataset?.id;
     $("#grid").innerHTML = list.map(cardHtml).join("");
@@ -338,7 +383,7 @@ function renderDetail() {
       <div class="fields">
         <div class="field"><span class="k">Category</span>
           <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Category: ${esc(c.label)}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(c.label)}</span><span class="chev"></span></button></div>
-        ${p.category !== p.category_auto ? `<div class="field"><span class="k">Detected as ${esc(catOf(p.category_auto).label)}</span><button class="link" data-action="reset-category">Use detected</button></div>` : ""}
+        ${sortFields(p)}
         ${S.data.usage.projects ? `<div class="field"><span class="k">Used in</span><span class="v">${p.uses ? plural(p.uses, "project") : "None of your projects"}</span></div>` : ""}
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
       </div>
@@ -347,6 +392,20 @@ function renderDetail() {
         <button class="btn quiet" data-action="custom-image">${icon("image")}Use my own image…</button>
       </div>
     </div>`;
+}
+
+// Type (the subgroup) and Character menus, then whether Ordel or the user sorted it.
+function sortFields(p) {
+  const subs = subsOf(p.category);
+  const chars = subs.find((s) => s.key === p.subgroup)?.characters || [];
+  const opt = (v, label, on) => `<option value="${esc(v)}"${on ? " selected" : ""}>${esc(label)}</option>`;
+  const auto = [catOf(p.category_auto).label, subsOf(p.category_auto).find((s) => s.key === p.subgroup_auto)?.label].filter(Boolean).join(", ");
+  return (subs.length ? `<div class="field"><span class="k">Type</span><select class="field-pick" id="type-pick" aria-label="Type">${
+    subs.map((s) => opt(s.key, s.label, s.key === p.subgroup)).join("")}</select></div>` : "") +
+    (chars.length ? `<div class="field"><span class="k">Character</span><select class="field-pick" id="character-pick" aria-label="Character">${
+      p.character_auto ? "" : opt("", "Not set", !p.character)}${chars.map((c) => opt(c.key, c.label, c.key === p.character)).join("")}</select></div>` : "") +
+    `<div class="field"><span class="k">Sorted by ${p.sorted_by === "you" ? "you" : "Ordel"}</span>${p.sorted_by === "you"
+      ? `<button class="link" data-action="reset-category" title="Ordel would put it in ${esc(auto)}">Use detected</button>` : ""}</div>`;
 }
 
 /* ---------- sheets ---------- */
@@ -566,6 +625,7 @@ function select(id, focus = false) {
 function setView(view) {
   S.view = view;
   S.chip = null;
+  S.developer = null;
   S.gridSig = "";
   S.selected = null;  // Enter and F act on the selected plugin, which must not linger out of sight
   C.selected = null;
@@ -666,6 +726,9 @@ document.addEventListener("dblclick", (e) => {
 document.addEventListener("change", (e) => {
   if (e.target.id === "hide-after-add") saveSettings({ hide_after_add: e.target.checked });
   if (e.target.id === "show-developer") saveSettings({ show_developer: e.target.checked });
+  if (e.target.id === "type-pick") updatePlugin(S.selected, { subgroup: e.target.value });
+  if (e.target.id === "character-pick") updatePlugin(S.selected, { character: e.target.value || null });
+  if (e.target.id === "developer-menu") { S.developer = e.target.value || null; $("#scroller").scrollTop = 0; render(); }
 });
 
 $("#search").addEventListener("input", (e) => { S.query = e.target.value; render(); });
@@ -673,24 +736,55 @@ $("#tile-size").addEventListener("input", (e) => document.documentElement.style.
 $("#tile-size").addEventListener("change", (e) => saveSettings({ tile_size: Number(e.target.value) }));
 $("#sheet-backdrop").addEventListener("mousedown", (e) => { if (e.target.id === "sheet-backdrop") closeSheet(); });
 
-/* Drag a card onto a sidebar category to recategorise it. */
+/* Drag a card onto a group or subgroup to move it, a character chip to mark it, or Favourites to star it.
+   REAPER folders and Chains take no drops. */
+function dropOf(el) {
+  const t = el.closest?.('.nav-item[data-view^="cat:"], .nav-item[data-view^="sub:"], .nav-item[data-view="favourites"], #chips .chip[data-chip]');
+  if (!t) return null;
+  const view = t.dataset.view;
+  if (view === "favourites") return { t, fields: { favourite: true }, label: "Add to Favourites", done: "Added {} to Favourites" };
+  if (view?.startsWith("sub:")) {
+    const { g, k, sub } = subView(view);
+    return { t, fields: { category: g, subgroup: k }, label: `Move to ${sub.label}`, done: `Moved {} to ${sub.label}` };
+  }
+  if (view) {
+    const c = catOf(view.slice(4));
+    return { t, fields: { category: c.key }, label: `Move to ${c.label}`, done: `Moved {} to ${c.label}` };
+  }
+  const ch = chipKind() === "character" && subView(S.view).sub.characters.find((c) => c.key === t.dataset.chip);
+  return ch ? { t, fields: { character: ch.key }, label: `Mark as ${ch.label}`, done: `Marked {} as ${ch.label}` } : null;
+}
+function clearDrop() {
+  document.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
+  $("#drop-label").hidden = true;
+}
+document.body.insertAdjacentHTML("beforeend", '<div id="drop-label" class="drop-label" hidden></div>');
 document.addEventListener("dragstart", (e) => {
   const card = e.target.closest(".card");
   if (card) e.dataTransfer.setData("text/plain", card.dataset.id);
 });
 document.addEventListener("dragover", (e) => {
-  const item = e.target.closest('.nav-item[data-view^="cat:"]');
-  document.querySelectorAll(".drop-target").forEach((el) => el !== item && el.classList.remove("drop-target"));
-  if (item) { e.preventDefault(); item.classList.add("drop-target"); }
+  const d = dropOf(e.target);
+  document.querySelectorAll(".drop-target").forEach((el) => el !== d?.t && el.classList.remove("drop-target"));
+  const tip = $("#drop-label");
+  if (!d) { tip.hidden = true; return; }
+  e.preventDefault();
+  d.t.classList.add("drop-target");
+  const r = d.t.getBoundingClientRect();
+  tip.textContent = d.label;
+  tip.hidden = false;
+  tip.style.left = `${Math.min(r.right + 8, innerWidth - tip.offsetWidth - 8)}px`;
+  tip.style.top = `${r.top + r.height / 2 - tip.offsetHeight / 2}px`;
 });
+document.addEventListener("dragend", clearDrop);
 document.addEventListener("drop", (e) => {
-  const item = e.target.closest('.nav-item[data-view^="cat:"]');
-  document.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
+  const d = dropOf(e.target);
+  clearDrop();
   const id = e.dataTransfer.getData("text/plain");
-  if (item && id) {
+  if (d && id) {
     e.preventDefault();
-    const key = item.dataset.view.slice(4);
-    updatePlugin(id, { category: key }).then(() => toast(`Moved ${pluginById(id)?.name} to ${catOf(key).label}`));
+    const name = pluginById(id)?.name;
+    updatePlugin(id, d.fields).then(() => toast(d.done.replace("{}", name)));
   }
 });
 
@@ -777,7 +871,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await load();
   if (!S.data) return setTimeout(() => location.reload(), 1000);
   S.view = S.data.settings.last_view || "all";
-  if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|dev|fx):/.test(S.view)) S.view = "all";
+  if (!S.data.plugins.some((p) => inView(p, S.view)) && /^(cat|sub|dev|fx):/.test(S.view)) S.view = "all";
   render();
   if (!S.data.settings.onboarded) showSheet("welcome");
   else if (!S.data.settings.toured) startTour();

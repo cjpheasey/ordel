@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ordel plugin list review</title>
+<style>
+:root{--bg:#14171f;--surf:#1b1f29;--surf2:#252a36;--text:#ece6d8;--t2:#a9a497;--t3:#6e6a61;--brass:#c9a15a;--line:#2a2f3b;--changed:#3a3222;--gone:#3a2226}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line);padding:14px 20px}
+h1{font-size:18px;margin:0 0 4px}
+.lead{color:var(--t2);margin:0 0 10px;max-width:760px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+input[type=search],select,textarea{background:var(--surf);color:var(--text);border:1px solid var(--line);border-radius:7px;font:inherit;padding:5px 8px}
+input[type=search]{width:220px}
+label.t{display:flex;gap:6px;align-items:center;color:var(--t2)}
+button{background:var(--brass);color:#14171f;border:0;border-radius:7px;padding:7px 14px;font:inherit;font-weight:600;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+.count{color:var(--t2)}
+main{padding:10px 20px 40px}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-weight:600;color:var(--t2);font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr.changed td{background:var(--changed)}
+tr.gone td{background:var(--gone);color:var(--t3)}
+tr.gone select{opacity:.4}
+.yours{display:inline-block;margin-left:6px;padding:0 7px;border-radius:99px;background:var(--surf2);color:var(--brass);font-size:11px}
+.dev{color:var(--t2)}
+.grp td{background:var(--surf);font-weight:600;padding-top:14px}
+textarea{width:100%;max-width:760px;min-height:70px;margin-top:6px}
+.notes{margin:18px 0 0}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surf2);padding:8px 16px;border-radius:8px;display:none}
+@media (max-width:700px){td:nth-child(2),th:nth-child(2){display:none}}
+</style></head><body>
+<header>
+<h1>Check Ordel's list of well-known plugins</h1>
+<p class="lead">Each row says where Ordel puts a plugin whose name starts with that text. Fix anything wrong with the menus, tick
+<b>Remove</b> for rows you'd rather leave out, and add anything missing in the box at the bottom. Then press
+<b>Copy my changes</b> and paste them into the chat.</p>
+<div class="bar">
+ <input type="search" id="q" placeholder="Search plugins or developers" aria-label="Search">
+ <label class="t"><input type="checkbox" id="mineOnly"> Only plugins I have</label>
+ <span class="count" id="count"></span>
+ <button id="copy">Copy my changes</button>
+</div>
+</header>
+<main>
+<table><thead><tr><th>Plugin name starts with</th><th>Developer</th><th>Group</th><th>Type</th><th>Character</th><th>Remove</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<div class="notes"><b>Anything missing or anything else?</b><br>
+<textarea id="notes" placeholder="e.g. Kiive Tape Face: Saturation, Tape"></textarea></div>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const D = /*DATA*/null;
+const label = Object.fromEntries(D.groups.map(g => [g.key, g.label]));
+const subs = D.subgroups;
+const orig = D.rows.map(r => ({...r}));
+const cur = D.rows.map(r => ({...r, removed: false}));
+const opt = (v, t, sel) => `<option value="${v}"${v === sel ? " selected" : ""}>${t}</option>`;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+function subOpts(r) {
+  const list = subs[r.group];
+  return list ? list.map(s => opt(s.key, s.label, r.subgroup)).join("") : opt("", "—", "");
+}
+function charOpts(r) {
+  const s = (subs[r.group] || []).find(s => s.key === r.subgroup);
+  return s && s.characters.length ? opt("", "Not set", r.character || "") + s.characters.map(c => opt(c.key, c.label, r.character)).join("") : opt("", "—", "");
+}
+const changed = (r, o) => r.removed || r.group !== o.group || r.subgroup !== o.subgroup || r.character !== o.character;
+function render() {
+  const q = document.getElementById("q").value.toLowerCase(), mine = document.getElementById("mineOnly").checked;
+  let html = "", last = null, shown = 0;
+  const order = cur.map((r, i) => i).sort((a, b) => D.groups.findIndex(g => g.key === orig[a].group) - D.groups.findIndex(g => g.key === orig[b].group));
+  for (const i of order) {
+    const r = cur[i], o = orig[i];
+    if (mine && !o.yours.length) continue;
+    if (q && !(o.name + " " + (o.developer || "") + " " + o.yours.join(" ")).toLowerCase().includes(q)) continue;
+    if (o.group !== last) { html += `<tr class="grp"><td colspan="6">${label[o.group]}</td></tr>`; last = o.group; }
+    shown++;
+    html += `<tr data-i="${i}" class="${r.removed ? "gone" : changed(r, o) ? "changed" : ""}">
+      <td>${esc(o.name)}${o.yours.length ? `<span class="yours" title="${esc(o.yours.join(", "))}">yours</span>` : ""}</td>
+      <td class="dev">${esc(o.developer || "any")}</td>
+      <td><select data-f="group" aria-label="Group">${D.groups.map(g => opt(g.key, g.label, r.group)).join("")}</select></td>
+      <td><select data-f="subgroup" aria-label="Type"${subs[r.group] ? "" : " disabled"}>${subOpts(r)}</select></td>
+      <td><select data-f="character" aria-label="Character"${r.subgroup === "compressors" ? "" : " disabled"}>${charOpts(r)}</select></td>
+      <td><input type="checkbox" data-f="removed" aria-label="Remove ${esc(o.name)}"${r.removed ? " checked" : ""}></td></tr>`;
+  }
+  document.getElementById("rows").innerHTML = html;
+  const n = cur.filter((r, i) => changed(r, orig[i])).length;
+  document.getElementById("count").textContent = `${shown} shown · ${n} changed`;
+}
+document.getElementById("rows").addEventListener("change", e => {
+  const i = +e.target.closest("tr").dataset.i, r = cur[i], f = e.target.dataset.f;
+  if (f === "removed") r.removed = e.target.checked;
+  else r[f] = e.target.value || null;
+  if (f === "group") { r.subgroup = subs[r.group] ? (subs[r.group].some(s => s.key === r.subgroup) ? r.subgroup : "other") : null; }
+  if (r.subgroup !== "compressors") r.character = null;
+  render();
+});
+document.getElementById("q").addEventListener("input", render);
+document.getElementById("mineOnly").addEventListener("change", render);
+const where = r => [label[r.group], r.subgroup && (subs[r.group] || []).find(s => s.key === r.subgroup)?.label,
+  r.character && subs.dynamics[0].characters.find(c => c.key === r.character)?.label].filter(Boolean).join(", ");
+document.getElementById("copy").addEventListener("click", async () => {
+  const lines = cur.map((r, i) => [r, orig[i]]).filter(([r, o]) => changed(r, o)).map(([r, o]) =>
+    `${o.name} (${o.developer || "any"}): ${r.removed ? "remove" : `${where(o)} -> ${where(r)}`}`);
+  const notes = document.getElementById("notes").value.trim();
+  const text = (lines.length ? "Changes:\n" + lines.join("\n") : "No changes to the list.") + (notes ? "\n\nAlso:\n" + notes : "");
+  let ok = true;
+  try { await navigator.clipboard.writeText(text); } catch { ok = false; }
+  const t = document.getElementById("toast");
+  t.textContent = ok ? `Copied ${lines.length} change${lines.length === 1 ? "" : "s"}. Paste them into the chat.` : "Couldn't copy: select the text below instead.";
+  if (!ok) document.getElementById("notes").value = text;
+  t.style.display = "block"; setTimeout(() => t.style.display = "none", 3500);
+});
+render();
+</script>
+</body></html>

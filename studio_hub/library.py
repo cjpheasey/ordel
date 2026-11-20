@@ -10,7 +10,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .bridge import replace_file
-from .categories import CATEGORIES, KEYS, resolve_category
+from .categories import CATEGORIES, KEYS
+from .subgroups import SUBGROUPS, character_from_name, detect, keys_of, subgroup_from_name
 from .reaper_db import Plugin, tidy_developer
 
 DEFAULT_SETTINGS = {
@@ -129,8 +130,21 @@ class Library:
         if key is not None and key not in KEYS and key not in {c["key"] for c in self._categories}:
             raise ValueError(f"unknown category {key!r}")
         with self._lock:
-            self._clear(also, "category")
+            # A new group means its subgroup and character are detected afresh within it.
+            for field in ("category", "subgroup", "character"):
+                self._clear([plugin_id, *also], field)
             self._set(plugin_id, category=key)
+
+    def set_subgroup(self, plugin_id: str, key: str | None, also: Iterable[str] = ()) -> None:
+        """The caller checks the key belongs to the plugin's group."""
+        with self._lock:
+            self._clear(also, "subgroup")
+            self._set(plugin_id, subgroup=key)
+
+    def set_character(self, plugin_id: str, key: str | None, also: Iterable[str] = ()) -> None:
+        with self._lock:
+            self._clear(also, "character")
+            self._set(plugin_id, character=key)
 
     # ---------- categories the user makes ----------
 
@@ -178,7 +192,8 @@ class Library:
             self._categories = [c for c in self._categories if c["key"] != key]
             for record in self._plugins.values():
                 if record.get("category") == key:
-                    record.pop("category")
+                    for field in ("category", "subgroup", "character"):
+                        record.pop(field, None)
             self._save()
 
     def count_variant(self, group_id: str, variant_id: str) -> None:
@@ -240,7 +255,18 @@ class Library:
                 members = [p, *p.variants]
                 states = [self._plugins.get(m.id, {}) for m in members]
                 state = states[0]
-                auto = resolve_category(p.reaper_tags, p.name, p.instrument)
+                found = detect(p.name, p.vendor, p.reaper_tags, p.instrument)
+                auto = found["group"]
+                hand = {f: next((s[f] for s in states if s.get(f)), None) for f in ("category", "subgroup", "character")}
+                group = hand["category"] or auto
+                sub_auto = char_auto = None
+                if group in SUBGROUPS:
+                    sub_auto = found["subgroup"] if group == auto else subgroup_from_name(group, p.name, p.reaper_tags)
+                if sub_auto == "compressors":
+                    char_auto = found["character"] if found["subgroup"] == "compressors" else character_from_name(p.name)
+                sub = hand["subgroup"] if hand["subgroup"] in keys_of(group) else sub_auto
+                chars = {c["key"] for s in SUBGROUPS.get(group, []) if s["key"] == sub for c in s["characters"]}
+                char = hand["character"] if hand["character"] in chars else char_auto if chars else None
                 # The picture: the main version's, else the first version that has one.
                 pictured = next((i for i, s in enumerate(states) if s.get("capture") in ("ok", "custom")), 0)
                 counts = state.get("variants") or {}
@@ -254,8 +280,11 @@ class Library:
                                   "shot": s.get("shot", 0) if s.get("capture") in ("ok", "custom") else 0}
                                  for m, s in zip(members, states)] if p.variants else [],
                     "preferred": preferred,
-                    "category": next((s["category"] for s in states if s.get("category")), None) or auto,
+                    "category": group,
                     "category_auto": auto,
+                    "subgroup": sub, "subgroup_auto": sub_auto,
+                    "character": char, "character_auto": char_auto,
+                    "sorted_by": "you" if any(hand.values()) else "ordel",
                     "favourite": any(s.get("favourite", False) for s in states),
                     "last_used": max(s.get("last_used", 0) for s in states),
                     "capture": states[pictured].get("capture", "none"),
