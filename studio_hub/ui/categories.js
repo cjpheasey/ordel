@@ -52,7 +52,6 @@ async function toggleCategory(key) {
 }
 
 async function toggleOne(p, key) {
-  const top = $("#cat-menu")?.style.top;
   const extras = extrasOf(p);
   if (p.category === "uncategorised" || key === "uncategorised") {
     if (key === p.category) return;
@@ -65,11 +64,19 @@ async function toggleOne(p, key) {
   } else {
     await updatePlugin(p.id, { extra_add: { group: key } });
   }
-  const button = $("#category-button");
-  if (button) { openCategoryMenu(button, key); if (top) $("#cat-menu").style.top = top; }
+  // Update the ticks in place: rebuilding the open menu made it jump and replay its entrance.
+  const now = pluginById(p.id);
+  document.querySelectorAll("#cat-menu [data-pick-cat]").forEach((li) => {
+    const on = !!now && inGroup(now, li.dataset.pickCat);
+    if ((li.getAttribute("aria-selected") === "true") === on) return;
+    li.setAttribute("aria-selected", on);
+    li.querySelector(".icon")?.remove();
+    if (on) li.insertAdjacentHTML("beforeend", icon("check"));
+  });
+  $("#category-button")?.setAttribute("aria-expanded", "true");
 }
 
-function openCategoryMenu(button, keepAt = null) {
+function openCategoryMenu(button) {
   const p = pluginById(S.selected);
   if (!p) return;
   closeCategoryMenu();
@@ -97,7 +104,7 @@ function openCategoryMenu(button, keepAt = null) {
   menu.style.left = `${Math.max(12, Math.min(r.right + 12 - width, innerWidth - width - 12))}px`;
   menu.style.maxHeight = `${innerHeight - 24}px`;
   const height = menu.offsetHeight;
-  const current = menu.querySelector(`[data-pick-cat="${keepAt || p.category}"]`) || menu.querySelector("[data-pick-cat]");
+  const current = menu.querySelector(`[data-pick-cat="${p.category}"]`) || menu.querySelector("[data-pick-cat]");
   const lined = r.top + r.height / 2 - (current.offsetTop + current.offsetHeight / 2);
   menu.style.top = `${Math.max(12, Math.min(lined, innerHeight - height - 12))}px`;
   button.setAttribute("aria-expanded", "true");

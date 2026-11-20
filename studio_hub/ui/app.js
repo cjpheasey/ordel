@@ -167,6 +167,7 @@ const helpButton = (key) => `<span class="help"><button class="help-btn" aria-la
 
 function render() {
   if (!S.data) return;
+  requestAnimationFrame(() => { S.entering = false; });
   const st = S.data.settings;
   Object.assign(document.body.dataset, {
     theme: st.theme, accent: st.accent, fit: st.picture_fit, density: st.density, corners: st.corners,
@@ -227,6 +228,10 @@ function renderSidebar() {
         `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`, "",
         filledSubs(c.key).length ? subsOpen(c.key) : null) + subgroupItems(c.key))
       .join("") + newCategoryRow());
+  if (S.opening) {  // added after drawing, so a redraw a moment later can't cut the slide-in short
+    document.querySelectorAll("#nav-categories .nav-sub").forEach((el, n) => { el.classList.add("enter"); el.style.setProperty("--i", n); });
+    S.opening = null;
+  }
 
   const r = S.data.reaper;
   setHtml($("#reaper-status"), `<span class="dot${r.connected ? " on" : ""}"></span>${r.connected ? "REAPER connected" : "REAPER not connected"}`);
@@ -357,6 +362,13 @@ function renderGrid() {
   if (sig !== S.gridSig) {
     const focused = document.activeElement?.dataset?.id;
     $("#grid").innerHTML = list.map(cardHtml).join("");
+    if (S.entering) {
+      const grid = $("#grid");
+      grid.querySelectorAll(":scope > li").forEach((li, i) => li.style.setProperty("--i", Math.min(i, 12)));
+      grid.classList.remove("entering");
+      void grid.offsetWidth;  // restart the animation when pages change quickly
+      grid.classList.add("entering");
+    }
     S.gridSig = sig;
     if (focused) document.querySelector(`.card[data-id="${focused}"]`)?.focus({ preventScroll: true });
   } else {
@@ -374,6 +386,7 @@ function renderDetail() {
   const c = catOf(p.category);
   const sig = JSON.stringify(p) + S.data.reaper.connected + S.data.capture.running + versionOf(p);
   if (!panel.hidden && panel.dataset.sig === sig) return;
+  const switched = !panel.hidden && panel.dataset.id && panel.dataset.id !== p.id;
   panel.hidden = false;
   panel.dataset.id = p.id;
   panel.dataset.sig = sig;
@@ -382,6 +395,9 @@ function renderDetail() {
   const art = has
     ? `<img class="bg" src="${url}" alt=""><img class="fg" src="${url}" alt="Interface of ${esc(p.name)}">`
     : `<div class="ph"><span class="initials" style="font-size:48px">${esc(initials(p.name))}</span><span class="why">${DETAIL_CAPTION[p.capture] || "No picture yet"}</span></div>`;
+  const artKey = `${p.id}|${url}|${has}|${c.color}`;  // same plugin, picture and colour: keep the node
+  const keptArt = panel.dataset.art === artKey && panel.querySelector(".detail-body > .art");
+  panel.dataset.art = artKey;
   panel.innerHTML = `
     <div class="detail-head"><button class="icon-btn" data-action="close-detail" aria-label="Close details">${icon("close")}</button></div>
     <div class="detail-body">
@@ -394,7 +410,7 @@ function renderDetail() {
       </div>
       <div class="fields">
         <div class="field"><span class="k">Category</span>
-          <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Categories: ${esc(groupNames(p))}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(groupNames(p))}</span><span class="chev"></span></button></div>
+          <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="${$("#cat-menu") ? "true" : "false"}" aria-label="Categories: ${esc(groupNames(p))}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(groupNames(p))}</span><span class="chev"></span></button></div>
         ${sortFields(p)}
         ${S.data.usage.projects ? `<div class="field"><span class="k">Used in</span><span class="v">${p.uses ? plural(p.uses, "project") : "None of your projects"}</span></div>` : ""}
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
@@ -404,6 +420,8 @@ function renderDetail() {
         <button class="btn quiet" data-action="custom-image">${icon("image")}Use my own image…</button>
       </div>
     </div>`;
+  if (keptArt) panel.querySelector(".detail-body > .art").replaceWith(keptArt);
+  if (switched) panel.querySelector(".detail-body").classList.add("swap");
 }
 
 // Type (the subgroup) and Character menus, then whether Ordel or the user sorted it.
@@ -635,6 +653,8 @@ function select(id, focus = false) {
 }
 
 function setView(view) {
+  S.opening = viewGroup(view) !== viewGroup() ? viewGroup(view) : null;  // a group opening: its types slide in
+  S.entering = true;  // a new page: its cards fade in
   S.view = view;
   S.chip = null;
   S.developer = null;
@@ -699,7 +719,11 @@ document.addEventListener("click", (e) => {
   if (t.dataset.action) return actions[t.dataset.action]?.(t);
   if (t.dataset.version) { S.versions[t.dataset.for || S.selected] = t.dataset.version; return render(); }
   // Clicking the open group again folds its subgroups away (and opens them again).
-  if (t.dataset.view && t.dataset.view === S.view && t.hasAttribute("aria-expanded")) { S.folded = !S.folded; return render(); }
+  if (t.dataset.view && t.dataset.view === S.view && t.hasAttribute("aria-expanded")) {
+    S.folded = !S.folded;
+    S.opening = S.folded ? null : viewGroup();
+    return render();
+  }
   if (t.dataset.view) return setView(t.dataset.view);
   if (t.dataset.mode) return saveSettings({ sidebar_mode: t.dataset.mode }).catch(() => {});
   if (t.dataset.chip !== undefined) { S.chip = t.dataset.chip || null; $("#scroller").scrollTop = 0; return render(); }
