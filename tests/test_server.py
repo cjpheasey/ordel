@@ -403,3 +403,16 @@ def test_dropping_on_its_own_group_keeps_hand_set_type_and_character(env):
     assert find(api, "ReaComp")["subgroup"] == "limiters"
     post(base + "/api/plugin", {"id": pid, "category": None})  # Use detected still resets everything
     assert find(api, "ReaComp")["sorted_by"] == "ordel"
+
+
+def test_plugin_extra_groups_over_the_api(env):
+    base, api, *_ = env
+    pid = find(api, "ReaComp")["id"]
+    assert post(base + "/api/plugin", {"id": pid, "extra_add": {"group": "mastering"}})[0] == 200
+    assert post(base + "/api/plugin", {"id": pid, "extra_add": {"group": "reverb", "subgroup": "plate"}})[0] == 200
+    assert find(api, "ReaComp")["extra_groups"] == [{"group": "mastering", "subgroup": None},
+                                                     {"group": "reverb", "subgroup": "plate"}]
+    assert post(base + "/api/plugin", {"id": pid, "extra_add": {"group": "reverb", "subgroup": "gates"}})[0] == 400
+    assert post(base + "/api/plugin", {"id": pid, "extra_add": {"group": "dynamics"}})[0] == 400  # its main group
+    assert post(base + "/api/plugin", {"id": pid, "extra_remove": "mastering"})[0] == 200
+    assert [e["group"] for e in find(api, "ReaComp")["extra_groups"]] == ["reverb"]

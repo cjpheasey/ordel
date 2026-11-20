@@ -37,6 +37,10 @@ function subView(view) {
 }
 // "cat:dynamics" and "sub:dynamics/limiters" both belong to Dynamics.
 const viewGroup = (view = S.view) => (view.startsWith("cat:") ? view.slice(4) : view.startsWith("sub:") ? subView(view).g : null);
+const extrasOf = (p) => p.extra_groups || [];
+const inGroup = (p, g) => p.category === g || extrasOf(p).some((e) => e.group === g);
+const subIn = (p, g) => (p.category === g ? p.subgroup : extrasOf(p).find((e) => e.group === g)?.subgroup);
+const groupNames = (p) => [p.category, ...extrasOf(p).map((e) => e.group)].map((g) => catOf(g).label).join(", ");
 const characterOf = (p) => subsOf(p.category).find((s) => s.key === p.subgroup)?.characters.find((c) => c.key === p.character);
 
 function inView(p, view) {
@@ -46,8 +50,8 @@ function inView(p, view) {
   if (view === "recent") return p.last_used > 0;
   if (view.startsWith("dev:")) return devOf(p) === view.slice(4);
   if (view.startsWith("fx:")) return !!folderOf(view)?.plugins.includes(p.id);
-  if (view.startsWith("sub:")) { const { g, k } = subView(view); return p.category === g && p.subgroup === k; }
-  return p.category === view.slice(4);
+  if (view.startsWith("sub:")) { const { g, k } = subView(view); return inGroup(p, g) && subIn(p, g) === k; }
+  return inGroup(p, view.slice(4));
 }
 
 // A folder you made in REAPER's FX browser (Favorites included), read straight from REAPER.
@@ -188,7 +192,7 @@ function navItem(view, label, n, lead, cls = "", expanded = null) {
 
 // A group's subgroups that have plugins (empty ones are hidden).
 const filledSubs = (group) => subsOf(group)
-  .map((s) => ({ s, n: S.data.plugins.filter((p) => p.category === group && p.subgroup === s.key).length }))
+  .map((s) => ({ s, n: S.data.plugins.filter((p) => inGroup(p, group) && subIn(p, group) === s.key).length }))
   .filter(({ n }) => n > 0);
 // The open group shows its subgroups unless it was clicked again to fold them away.
 const subsOpen = (group) => viewGroup() === group && !S.folded;
@@ -217,7 +221,7 @@ function renderSidebar() {
   setHtml($("#nav-categories"), mode === "developers"
     ? developers().map(([name, n]) => navItem(`dev:${name}`, name, n, `<span class="initial">${esc(name[0].toUpperCase())}</span>`)).join("")
     : cats()
-      .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
+      .map((c) => ({ c, n: ps.filter((p) => inGroup(p, c.key)).length }))
       .filter(({ c, n }) => n > 0 || c.custom || S.view === `cat:${c.key}`)  // yours show even when empty
       .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
         `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`, "",
@@ -390,7 +394,7 @@ function renderDetail() {
       </div>
       <div class="fields">
         <div class="field"><span class="k">Category</span>
-          <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Category: ${esc(c.label)}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(c.label)}</span><span class="chev"></span></button></div>
+          <button class="cat-pick" id="category-button" aria-haspopup="listbox" aria-expanded="false" aria-label="Categories: ${esc(groupNames(p))}"><span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="cat-pick-label">${esc(groupNames(p))}</span><span class="chev"></span></button></div>
         ${sortFields(p)}
         ${S.data.usage.projects ? `<div class="field"><span class="k">Used in</span><span class="v">${p.uses ? plural(p.uses, "project") : "None of your projects"}</span></div>` : ""}
         <div class="field"><span class="k">Format</span><span class="v">${formats.join(", ")}${p.instrument ? " instrument" : ""}</span></div>
@@ -692,7 +696,7 @@ document.addEventListener("click", (e) => {
   if (add) return send(add.dataset.add);  // the + on a card
   const t = e.target.closest("[data-action],[data-version],[data-setting],[data-view],[data-mode],[data-chip],[data-capture],[data-window],[data-theme-opt],.card,#reaper-status,#open-settings,#hotkey");
   if (!t) return;
-  if (t.dataset.action) return actions[t.dataset.action]?.();
+  if (t.dataset.action) return actions[t.dataset.action]?.(t);
   if (t.dataset.version) { S.versions[t.dataset.for || S.selected] = t.dataset.version; return render(); }
   // Clicking the open group again folds its subgroups away (and opens them again).
   if (t.dataset.view && t.dataset.view === S.view && t.hasAttribute("aria-expanded")) { S.folded = !S.folded; return render(); }
@@ -754,25 +758,56 @@ function dropOf(el) {
   if (!t) return null;
   const view = t.dataset.view;
   if (view === "favourites") return { t, fields: { favourite: true }, label: "Add to Favourites", done: "Added {} to Favourites" };
+  const p = pluginById(S.dragging);
   if (view?.startsWith("sub:")) {
     const { g, k, sub } = subView(view);
-    return { t, fields: { category: g, subgroup: k }, label: `Move to ${sub.label}`, done: `Moved {} to ${sub.label}` };
+    return withChoice(p, g, k, { t, fields: { category: g, subgroup: k }, label: `Move to ${sub.label}`, done: `Moved {} to ${sub.label}`, name: sub.label });
   }
   if (view) {
     const c = catOf(view.slice(4));
-    return { t, fields: { category: c.key }, label: `Move to ${c.label}`, done: `Moved {} to ${c.label}` };
+    return withChoice(p, c.key, null, { t, fields: { category: c.key }, label: `Move to ${c.label}`, done: `Moved {} to ${c.label}`, name: c.label });
   }
   const ch = chipKind() === "character" && subView(S.view).sub.characters.find((c) => c.key === t.dataset.chip);
   return ch ? { t, fields: { character: ch.key }, label: `Mark as ${ch.label}`, done: `Marked {} as ${ch.label}` } : null;
 }
+// Dropping on a group other than the plugin's main one offers a choice rather than moving it straight away.
+function withChoice(p, group, sub, d) {
+  if (!p || p.category === group) return d;
+  const already = extrasOf(p).some((e) => e.group === group && (!sub || e.subgroup === sub));
+  return { ...d, label: `Move or add to ${d.name}`, choice: { group, sub, already } };
+}
+function showDropChoice(id, d, x, y) {
+  const name = esc(d.name);
+  const menu = $("#drop-choice");
+  menu.innerHTML = `<button data-choice="move">Move to ${name}</button>
+    <button data-choice="add"${d.choice.already ? " disabled" : ""}>${d.choice.already ? `Already in ${name}` : `Also add to ${name}`}</button>`;
+  S.pendingDrop = { id, d };
+  menu.hidden = false;
+  menu.style.left = `${Math.min(x, innerWidth - menu.offsetWidth - 8)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - menu.offsetHeight - 8)}px`;
+  menu.querySelector("button:not([disabled])").focus();
+}
+function closeDropChoice() { $("#drop-choice").hidden = true; S.pendingDrop = null; }
+function pickDropChoice(kind) {
+  const { id, d } = S.pendingDrop || {};
+  closeDropChoice();
+  if (!id) return;
+  const name = pluginById(id)?.name;
+  if (kind === "move") return updatePlugin(id, d.fields).then(() => toast(d.done.replace("{}", name)));
+  updatePlugin(id, { extra_add: { group: d.choice.group, subgroup: d.choice.sub } })
+    .then(() => toast(`${name} also shows in ${d.name}`));
+}
+
 function clearDrop() {
   document.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
   $("#drop-label").hidden = true;
 }
-document.body.insertAdjacentHTML("beforeend", '<div id="drop-label" class="drop-label" hidden></div>');
+document.body.insertAdjacentHTML("beforeend", '<div id="drop-label" class="drop-label" hidden></div><div id="drop-choice" class="drop-choice" role="menu" hidden></div>');
+document.addEventListener("mousedown", (e) => { if (S.pendingDrop && !e.target.closest("#drop-choice")) closeDropChoice(); }, true);
+$("#drop-choice").addEventListener("click", (e) => { const b = e.target.closest("[data-choice]"); if (b && !b.disabled) pickDropChoice(b.dataset.choice); });
 document.addEventListener("dragstart", (e) => {
   const card = e.target.closest(".card");
-  if (card) e.dataTransfer.setData("text/plain", card.dataset.id);
+  if (card) { e.dataTransfer.setData("text/plain", card.dataset.id); S.dragging = card.dataset.id; }
 });
 document.addEventListener("dragover", (e) => {
   const d = dropOf(e.target);
@@ -787,13 +822,14 @@ document.addEventListener("dragover", (e) => {
   tip.style.left = `${Math.min(r.right + 8, innerWidth - tip.offsetWidth - 8)}px`;
   tip.style.top = `${r.top + r.height / 2 - tip.offsetHeight / 2}px`;
 });
-document.addEventListener("dragend", clearDrop);
+document.addEventListener("dragend", () => { clearDrop(); S.dragging = null; });
 document.addEventListener("drop", (e) => {
   const d = dropOf(e.target);
   clearDrop();
   const id = e.dataTransfer.getData("text/plain");
   if (d && id) {
     e.preventDefault();
+    if (d.choice) return showDropChoice(id, d, e.clientX, e.clientY);
     const name = pluginById(id)?.name;
     updatePlugin(id, d.fields).then(() => toast(d.done.replace("{}", name)));
   }
@@ -844,6 +880,7 @@ document.addEventListener("keydown", async (e) => {
   const sheetOpen = !$("#sheet-backdrop").hidden;
 
   if (e.key === "Escape") {
+    if (S.pendingDrop) return closeDropChoice();
     if (document.activeElement?.classList.contains("help-btn")) return document.activeElement.blur();
     if (sheetOpen) return closeSheet();
     if (S.query) { S.query = ""; $("#search").value = ""; render(); return $("#search").blur(); }

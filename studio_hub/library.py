@@ -130,10 +130,12 @@ class Library:
         if key is not None and key not in KEYS and key not in {c["key"] for c in self._categories}:
             raise ValueError(f"unknown category {key!r}")
         with self._lock:
+            extras = self._extras([plugin_id, *also])
+            extras.pop(key, None)  # its new main group is no longer an extra one
             # A new group means its subgroup and character are detected afresh within it.
-            for field in ("category", "subgroup", "character"):
+            for field in ("category", "subgroup", "character", "extra"):
                 self._clear([plugin_id, *also], field)
-            self._set(plugin_id, category=key)
+            self._set(plugin_id, category=key, extra=extras)
 
     def set_subgroup(self, plugin_id: str, key: str | None, also: Iterable[str] = ()) -> None:
         """The caller checks the key belongs to the plugin's group."""
@@ -145,6 +147,25 @@ class Library:
         with self._lock:
             self._clear(also, "character")
             self._set(plugin_id, character=key)
+
+    def _extras(self, ids: Iterable[str]) -> dict:
+        """The extra groups stored on a plugin or any of its versions: {group: subgroup or None}."""
+        return dict(next((r["extra"] for i in ids if isinstance((r := self._plugins.get(i, {})).get("extra"), dict)
+                          and r["extra"]), {}))
+
+    def set_extra(self, plugin_id: str, group: str, subgroup: str | None, on: bool = True,
+                  also: Iterable[str] = ()) -> None:
+        """Show a plugin in another group too (on), or stop (off). The caller checks the subgroup."""
+        if on and group not in KEYS and group not in {c["key"] for c in self._categories}:
+            raise ValueError(f"unknown category {group!r}")
+        with self._lock:
+            extras = self._extras([plugin_id, *also])
+            if on:
+                extras[group] = subgroup
+            else:
+                extras.pop(group, None)
+            self._clear(also, "extra")
+            self._set(plugin_id, extra=extras)
 
     # ---------- categories the user makes ----------
 
@@ -194,6 +215,8 @@ class Library:
                 if record.get("category") == key:
                     for field in ("category", "subgroup", "character"):
                         record.pop(field, None)
+                if isinstance(record.get("extra"), dict):
+                    record["extra"].pop(key, None)
             self._save()
 
     def count_variant(self, group_id: str, variant_id: str) -> None:
@@ -248,6 +271,13 @@ class Library:
     def capture_status(self, plugin_id: str) -> str:
         return self._plugins.get(plugin_id, {}).get("capture", "none")
 
+    def _extra_view(self, states: list[dict], main: str, p: Plugin) -> list[dict]:
+        extras = next((s["extra"] for s in states if isinstance(s.get("extra"), dict) and s["extra"]), {})
+        known = KEYS | {c["key"] for c in self._categories}
+        return [{"group": g, "subgroup": sub if sub in keys_of(g) else
+                 subgroup_from_name(g, p.name, p.reaper_tags) if g in SUBGROUPS else None}
+                for g, sub in extras.items() if g != main and g in known]
+
     def view(self, plugins: list[Plugin]) -> list[dict]:
         with self._lock:
             out = []
@@ -285,6 +315,7 @@ class Library:
                     "subgroup": sub, "subgroup_auto": sub_auto,
                     "character": char, "character_auto": char_auto,
                     "sorted_by": "you" if any(hand.values()) else "ordel",
+                    "extra_groups": self._extra_view(states, group, p),
                     "favourite": any(s.get("favourite", False) for s in states),
                     "last_used": max(s.get("last_used", 0) for s in states),
                     "capture": states[pictured].get("capture", "none"),

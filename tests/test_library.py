@@ -338,3 +338,47 @@ def test_existing_library_json_loads_unchanged(tmp_path):
     lib = Library(path)
     lib.mark_used("other0000000")
     assert {k: json.loads(path.read_text())["plugins"]["abc123abc123"][k] for k in record} == record
+
+
+def test_extra_groups_show_with_a_type_detected_inside_them(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_extra("abc123abc123", "dynamics", None)
+    lib.set_extra("abc123abc123", "reverb", "plate")
+    v = lib.view([comp("Limit Thing")])[0]
+    assert v["category"] == "dynamics"  # the main group is never listed as an extra
+    assert v["extra_groups"] == [{"group": "reverb", "subgroup": "plate"}]
+    lib.set_category("abc123abc123", "eq")
+    assert lib.view([comp("Limit Thing")])[0]["extra_groups"] == [
+        {"group": "dynamics", "subgroup": "limiters"}, {"group": "reverb", "subgroup": "plate"}]
+
+
+def test_moving_to_an_extra_group_makes_it_the_main_one(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_extra("abc123abc123", "reverb", None)
+    lib.set_category("abc123abc123", "reverb")
+    v = lib.view([comp()])[0]
+    assert v["category"] == "reverb" and v["extra_groups"] == []
+
+
+def test_extra_groups_cover_versions_and_can_be_removed(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    lib.set_extra(MONO, "eq", None)
+    lib.set_extra(MAIN, "reverb", None, also=[MONO])
+    assert [e["group"] for e in lib.view([group()])[0]["extra_groups"]] == ["eq", "reverb"]
+    assert "extra" not in lib._plugins[MONO]
+    lib.set_extra(MAIN, "eq", None, on=False, also=[MONO])
+    assert [e["group"] for e in lib.view([group()])[0]["extra_groups"]] == ["reverb"]
+
+
+def test_unknown_extra_group_rejected_and_deleted_category_dropped(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    try:
+        lib.set_extra("abc123abc123", "nope", None)
+        raise AssertionError("should have raised")
+    except ValueError:
+        pass
+    key = lib.add_category("Vocal Chain")["key"]
+    lib.set_extra("abc123abc123", key, None)
+    assert lib.view([comp()])[0]["extra_groups"] == [{"group": key, "subgroup": None}]
+    lib.delete_category(key)
+    assert lib.view([comp()])[0]["extra_groups"] == []

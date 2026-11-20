@@ -248,6 +248,15 @@ button { background: none; border: 0; padding: 0; cursor: default; }
   background: var(--accent); color: var(--accent-text); font-size: 12px; font-weight: 600;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
 }
+/* Asked after dropping a plugin on another group: move it there, or show it there too. */
+.drop-choice {
+  position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 2px; padding: 5px; min-width: 180px;
+  border-radius: 10px; background: var(--menu, var(--surface-2)); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+}
+.drop-choice button { text-align: left; padding: 7px 10px; border-radius: var(--r-sm); color: var(--text); font-size: 13px; }
+.drop-choice button:hover:not([disabled]), .drop-choice button:focus-visible { background: var(--hover); }
+.drop-choice button[disabled] { color: var(--text-3); cursor: default; }
 .field-pick {
   max-width: 60%; height: 28px; padding: 0 6px; border-radius: var(--r-sm);
   background: var(--surface); border: 1px solid var(--border); color: var(--text); font: inherit;
@@ -466,7 +475,8 @@ body[data-developer="off"] .sub .vendor { display: none; }
 .field .v { text-align: right; overflow-wrap: anywhere; }
 .select-wrap { position: relative; display: flex; align-items: center; gap: 8px; }
 /* The category picker in a plugin's details: a button, and a list with each category's colour. */
-.cat-pick { display: flex; align-items: center; gap: 8px; height: 28px; margin-right: -8px; padding: 0 8px 0 10px; border-radius: 8px; color: var(--text); }
+.cat-pick-label { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-pick { min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; margin-right: -8px; padding: 0 8px 0 10px; border-radius: 8px; color: var(--text); }
 .cat-pick:hover, .cat-pick[aria-expanded="true"] { background: var(--hover); }
 .cat-pick .chev { width: 6px; height: 6px; margin: -3px 2px 0 4px; border-right: 1.5px solid var(--text-2); border-bottom: 1.5px solid var(--text-2); transform: rotate(45deg); }
 .cat-menu {

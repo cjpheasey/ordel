@@ -134,7 +134,8 @@ class Api:
                 self.hooks["hide"]()
         return {"ok": ok, "detail": detail}
 
-    def update_plugin(self, id: str, favourite=None, category=_UNSET, subgroup=_UNSET, character=_UNSET) -> dict:
+    def update_plugin(self, id: str, favourite=None, category=_UNSET, subgroup=_UNSET, character=_UNSET,
+                      extra_add=None, extra_remove=None) -> dict:
         plugin = self._plugin(id)
         if plugin is None:
             raise ValueError("unknown plugin")
@@ -159,6 +160,17 @@ class Api:
                 self.library.set_character(id, character, also=others)
             elif not allowed:
                 self.library.set_character(id, None, also=others)
+        if extra_add is not None:  # {"group": key, "subgroup": key or None}: show it in that group too
+            if not isinstance(extra_add, dict):
+                raise ValueError("extra_add needs a group")
+            group, sub = extra_add.get("group"), extra_add.get("subgroup")
+            if group == self.library.view([plugin])[0]["category"]:
+                raise ValueError("that's already its main group")
+            if sub is not None and sub not in {s["key"] for s in SUBGROUPS.get(group, [])}:
+                raise ValueError("that type isn't in that group")
+            self.library.set_extra(id, group, sub, also=others)
+        if extra_remove is not None:
+            self.library.set_extra(id, extra_remove, None, on=False, also=others)
         return {"ok": True}
 
     # ---------- chains ----------

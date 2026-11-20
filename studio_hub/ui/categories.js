@@ -42,12 +42,40 @@ function closeCategoryMenu(focusButton = false) {
   if (focusButton) button?.focus();
 }
 
-function openCategoryMenu(button) {
+// Add the plugin to a group, or take it out. Its first group gives its colour, Type and Character; taking that one
+// away hands the role to the next. A plugin always stays in at least one group.
+async function toggleCategory(key) {
+  const p = pluginById(S.selected);
+  if (!p || toggleCategory.busy) return;  // a quick second click would act on the plugin as it was before the first
+  toggleCategory.busy = true;
+  try { await toggleOne(p, key); } finally { toggleCategory.busy = false; }
+}
+
+async function toggleOne(p, key) {
+  const top = $("#cat-menu")?.style.top;
+  const extras = extrasOf(p);
+  if (p.category === "uncategorised" || key === "uncategorised") {
+    if (key === p.category) return;
+    await updatePlugin(p.id, { category: key });  // Uncategorised is never one of several
+  } else if (key === p.category) {
+    if (!extras.length) return toast("A plugin needs at least one category");
+    await updatePlugin(p.id, { category: extras[0].group });
+  } else if (extras.some((e) => e.group === key)) {
+    await updatePlugin(p.id, { extra_remove: key });
+  } else {
+    await updatePlugin(p.id, { extra_add: { group: key } });
+  }
+  const button = $("#category-button");
+  if (button) { openCategoryMenu(button, key); if (top) $("#cat-menu").style.top = top; }
+}
+
+function openCategoryMenu(button, keepAt = null) {
   const p = pluginById(S.selected);
   if (!p) return;
   closeCategoryMenu();
-  const item = (c) => `<li role="option" tabindex="-1" data-pick-cat="${c.key}" aria-selected="${c.key === p.category}">
-      <span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="nm">${esc(c.label)}</span>${c.key === p.category ? icon("check") : ""}</li>`;
+  // Ticked: every group the plugin is in. Clicking one adds or removes it; the menu stays open for more.
+  const item = (c) => `<li role="option" tabindex="-1" data-pick-cat="${c.key}" aria-selected="${inGroup(p, c.key)}">
+      <span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span><span class="nm">${esc(c.label)}</span>${inGroup(p, c.key) ? icon("check") : ""}</li>`;
   const builtIn = cats().filter((c) => !c.custom && c.key !== "uncategorised");
   const mine = cats().filter((c) => c.custom);
   const uncat = cats().find((c) => c.key === "uncategorised");
@@ -55,7 +83,8 @@ function openCategoryMenu(button) {
   menu.id = "cat-menu";
   menu.className = "cat-menu";
   menu.setAttribute("role", "listbox");
-  menu.setAttribute("aria-label", "Category");
+  menu.setAttribute("aria-label", "Categories");
+  menu.setAttribute("aria-multiselectable", "true");
   menu.innerHTML = builtIn.map(item).join("")
     + (mine.length ? `<li class="cat-menu-head" role="presentation">Yours</li>${mine.map(item).join("")}` : "")
     + `<li class="cat-menu-sep" role="presentation"></li>${uncat ? item(uncat) : ""}`;
@@ -68,7 +97,7 @@ function openCategoryMenu(button) {
   menu.style.left = `${Math.max(12, Math.min(r.right + 12 - width, innerWidth - width - 12))}px`;
   menu.style.maxHeight = `${innerHeight - 24}px`;
   const height = menu.offsetHeight;
-  const current = menu.querySelector('[aria-selected="true"]') || menu.querySelector("[data-pick-cat]");
+  const current = menu.querySelector(`[data-pick-cat="${keepAt || p.category}"]`) || menu.querySelector("[data-pick-cat]");
   const lined = r.top + r.height / 2 - (current.offsetTop + current.offsetHeight / 2);
   menu.style.top = `${Math.max(12, Math.min(lined, innerHeight - height - 12))}px`;
   button.setAttribute("aria-expanded", "true");
@@ -79,9 +108,7 @@ function openCategoryMenu(button) {
 document.addEventListener("click", (e) => {
   const pick = e.target.closest("[data-pick-cat]");
   if (pick) {
-    const key = pick.dataset.pickCat;
-    closeCategoryMenu(true);
-    if (key !== pluginById(S.selected)?.category) updatePlugin(S.selected, { category: key });
+    toggleCategory(pick.dataset.pickCat);
     return;
   }
   const button = e.target.closest("#category-button");
