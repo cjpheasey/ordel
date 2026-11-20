@@ -353,10 +353,16 @@ h1 {
 
 /* Gallery */
 .scroller { flex: 1; overflow-y: auto; padding: 4px 24px 24px; scrollbar-gutter: stable; }
-.scroller::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 10px; }
-.scroller::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb {
-  background: var(--surface-2); border-radius: 5px; border: 3px solid transparent; background-clip: padding-box;
+/* Scroll bars everywhere: a 14px strip to grab, an 8px handle that widens and brightens under the pointer,
+   and never shorter than 48px so long lists still give it something to catch. */
+::-webkit-scrollbar { width: 14px; height: 14px; background: transparent; }
+::-webkit-scrollbar-thumb {
+  min-height: 48px; border-radius: 7px; border: 3px solid transparent; background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--text) 22%, transparent);
 }
+::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in srgb, var(--text) 38%, transparent); }
+::-webkit-scrollbar-thumb:active { border-width: 2px; background-color: color-mix(in srgb, var(--text) 50%, transparent); }
+::-webkit-scrollbar-corner { background: transparent; }
 .grid {
   list-style: none; margin: 0; padding: 0;
   display: grid;
