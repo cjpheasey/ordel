@@ -7,3 +7,5 @@ dist/
 brand/renders/
 brand/final-renders/
 brand/*preview.html
+docs/superpowers/
+docs/testing/
