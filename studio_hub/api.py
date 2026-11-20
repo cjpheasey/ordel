@@ -15,7 +15,6 @@ from .categories import CATEGORIES
 from .library import Library
 from .paths import reaper_dir
 from .reaper_db import Plugin, fx_folders, key_of_file, load_plugins
-from .subgroups import SUBGROUPS
 from .usage import count_usage, project_files
 
 _UNSET = object()
@@ -85,7 +84,7 @@ class Api:
             "plugins": views,
             "usage": {"projects": self.usage_projects},
             "fx_folders": self.fx_folders(),
-            "subgroups": SUBGROUPS,
+            "subgroups": self._all_types(),
             # Yours sit just before Uncategorised, which stays last.
             "categories": CATEGORIES[:-1] + self.library.custom_categories() + CATEGORIES[-1:],
             "settings": dict(self.library.settings),
@@ -147,7 +146,7 @@ class Api:
             self.library.set_category(id, category, also=others)
         if subgroup is not _UNSET or character is not _UNSET:
             view = self.library.view([plugin])[0]
-            subs = {s["key"]: s for s in SUBGROUPS.get(view["category"], [])}
+            subs = {s["key"]: s for s in self.library.types_of(view["category"])}
             if subgroup is not _UNSET:
                 if subgroup is not None and subgroup not in subs:
                     raise ValueError("that type isn't in this plugin's group")
@@ -166,7 +165,7 @@ class Api:
             group, sub = extra_add.get("group"), extra_add.get("subgroup")
             if group == self.library.view([plugin])[0]["category"]:
                 raise ValueError("that's already its main group")
-            if sub is not None and sub not in {s["key"] for s in SUBGROUPS.get(group, [])}:
+            if sub is not None and sub not in {s["key"] for s in self.library.types_of(group)}:
                 raise ValueError("that type isn't in that group")
             self.library.set_extra(id, group, sub, also=others)
         if extra_remove is not None:
@@ -331,10 +330,23 @@ class Api:
             self.library.set_chain_meta(c["id"], name=chainlib.safe_name(name))
         return {"ok": True, "id": c["id"]}
 
+    def _all_types(self) -> dict[str, list[dict]]:
+        """Every group's types, built-in and yours, for the sidebar, menus and drops."""
+        groups = [c["key"] for c in CATEGORIES] + [c["key"] for c in self.library.custom_categories()]
+        return {g: types for g in groups if (types := self.library.types_of(g))}
+
     def category_action(self, action: str, key: str | None = None, label: str | None = None,
-                        color: str | None = None) -> dict:
+                        color: str | None = None, group: str | None = None) -> dict:
         if action == "add":
             return self.library.add_category(label or "")
+        if action == "add_type":
+            return self.library.add_type(str(group), label or "")
+        if action == "rename_type":
+            self.library.rename_type(str(group), str(key), label or "")
+            return {"ok": True}
+        if action == "delete_type":
+            self.library.delete_type(str(group), str(key))
+            return {"ok": True}
         if action == "update":
             self.library.update_category(str(key), label, color)
         elif action == "delete":

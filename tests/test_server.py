@@ -416,3 +416,17 @@ def test_plugin_extra_groups_over_the_api(env):
     assert post(base + "/api/plugin", {"id": pid, "extra_add": {"group": "dynamics"}})[0] == 400  # its main group
     assert post(base + "/api/plugin", {"id": pid, "extra_remove": "mastering"})[0] == 200
     assert [e["group"] for e in find(api, "ReaComp")["extra_groups"]] == ["reverb"]
+
+
+def test_your_own_types_over_the_api(env):
+    base, api, *_ = env
+    status, t = post(base + "/api/category", {"action": "add_type", "group": "dynamics", "label": "Bus glue"})
+    assert status == 200 and t["label"] == "Bus glue"
+    assert any(s["key"] == t["key"] for s in api.state()["subgroups"]["dynamics"])
+    pid = find(api, "ReaComp")["id"]
+    assert post(base + "/api/plugin", {"id": pid, "subgroup": t["key"]})[0] == 200
+    assert find(api, "ReaComp")["subgroup"] == t["key"]
+    assert post(base + "/api/category", {"action": "rename_type", "group": "dynamics", "key": t["key"], "label": "Glue"})[0] == 200
+    assert post(base + "/api/category", {"action": "delete_type", "group": "dynamics", "key": t["key"]})[0] == 200
+    assert find(api, "ReaComp")["subgroup"] != t["key"]
+    assert post(base + "/api/category", {"action": "add_type", "group": "nope", "label": "X"})[0] == 400

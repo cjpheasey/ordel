@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .bridge import replace_file
 from .categories import CATEGORIES, KEYS
-from .subgroups import SUBGROUPS, character_from_name, detect, keys_of, subgroup_from_name
+from .subgroups import SUBGROUPS, character_from_name, detect, subgroup_from_name
 from .reaper_db import Plugin, tidy_developer
 
 DEFAULT_SETTINGS = {
@@ -70,6 +70,7 @@ class Library:
         self._plugins: dict[str, dict] = {}
         self._chains: dict[str, dict] = {}  # Ordel's extras per chain: order, return_track, hidden, ...
         self._categories: list[dict] = []  # categories the user made: key, label, color
+        self._types: dict[str, list[dict]] = {}  # types the user made, per group: key, label
         self._seen: list[str] | None = None  # plugin ids Ordel has already shown; None until first recorded
         self._load()
 
@@ -84,6 +85,10 @@ class Library:
             categories = data.get("categories")
             if isinstance(categories, list):
                 self._categories = [c for c in categories if isinstance(c, dict) and {"key", "label", "color"} <= c.keys()]
+            types = data.get("types")
+            if isinstance(types, dict):
+                self._types = {g: [t for t in ts if isinstance(t, dict) and {"key", "label"} <= t.keys()]
+                               for g, ts in types.items() if isinstance(ts, list)}
             seen = data.get("seen")
             if isinstance(seen, list):
                 self._seen = [s for s in seen if isinstance(s, str)]
@@ -101,7 +106,8 @@ class Library:
     def _save(self) -> None:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": 1, "settings": self.settings, "plugins": self._plugins,
-                                   "chains": self._chains, "seen": self._seen, "categories": self._categories},
+                                   "chains": self._chains, "seen": self._seen, "categories": self._categories,
+                                   "types": self._types},
                                   indent=1), encoding="utf-8")
         replace_file(tmp, self.path)
 
@@ -205,12 +211,68 @@ class Library:
                 category["color"] = color
             self._save()
 
+    # ---------- types the user makes inside a group ----------
+
+    def types_of(self, group: str) -> list[dict]:
+        """A group's types in sidebar order: built-in ones, then yours, then Other."""
+        built = SUBGROUPS.get(group, [])
+        mine = [{"key": t["key"], "label": t["label"], "characters": [], "custom": True} for t in self._types.get(group, [])]
+        return built[:-1] + mine + built[-1:] if built else mine
+
+    def _type_keys(self, group: str) -> set[str]:
+        return {t["key"] for t in self.types_of(group)}
+
+    def _check_type_label(self, group: str, label: str, ignore_key: str | None = None) -> str:
+        label = " ".join(str(label).split())
+        if not 1 <= len(label) <= 40:
+            raise ValueError("a type needs a name of up to 40 characters")
+        if label.lower() in (t["label"].lower() for t in self.types_of(group) if t["key"] != ignore_key):
+            raise ValueError(f"there's already a type called {label}")
+        return label
+
+    def _own_type(self, group: str, key: str) -> dict:
+        found = next((t for t in self._types.get(group, []) if t["key"] == key), None)
+        if found is None:
+            raise ValueError("only types you made can be changed")
+        return found
+
+    def add_type(self, group: str, label: str) -> dict:
+        with self._lock:
+            if group not in KEYS and group not in {c["key"] for c in self._categories}:
+                raise ValueError(f"unknown category {group!r}")
+            if group == "uncategorised":
+                raise ValueError("Uncategorised can't have types")
+            t = {"key": "t-" + uuid.uuid4().hex[:8], "label": self._check_type_label(group, label)}
+            self._types.setdefault(group, []).append(t)
+            self._save()
+            return dict(t, characters=[], custom=True)
+
+    def rename_type(self, group: str, key: str, label: str) -> None:
+        with self._lock:
+            t = self._own_type(group, key)
+            t["label"] = self._check_type_label(group, label, ignore_key=key)
+            self._save()
+
+    def delete_type(self, group: str, key: str) -> None:
+        """Its plugins go back to the type Ordel would pick for them."""
+        with self._lock:
+            self._own_type(group, key)
+            self._types[group] = [t for t in self._types[group] if t["key"] != key]
+            for record in self._plugins.values():
+                if record.get("subgroup") == key:
+                    record.pop("subgroup")
+                extra = record.get("extra")
+                if isinstance(extra, dict) and extra.get(group) == key:
+                    extra[group] = None
+            self._save()
+
     def delete_category(self, key: str) -> None:
         """Its plugins go back to the category Ordel detected for them."""
         with self._lock:
             if not any(c["key"] == key for c in self._categories):
                 raise ValueError("only categories you made can be deleted")
             self._categories = [c for c in self._categories if c["key"] != key]
+            self._types.pop(key, None)
             for record in self._plugins.values():
                 if record.get("category") == key:
                     for field in ("category", "subgroup", "character"):
@@ -274,7 +336,7 @@ class Library:
     def _extra_view(self, states: list[dict], main: str, p: Plugin) -> list[dict]:
         extras = next((s["extra"] for s in states if isinstance(s.get("extra"), dict) and s["extra"]), {})
         known = KEYS | {c["key"] for c in self._categories}
-        return [{"group": g, "subgroup": sub if sub in keys_of(g) else
+        return [{"group": g, "subgroup": sub if sub in self._type_keys(g) else
                  subgroup_from_name(g, p.name, p.reaper_tags) if g in SUBGROUPS else None}
                 for g, sub in extras.items() if g != main and g in known]
 
@@ -294,8 +356,8 @@ class Library:
                     sub_auto = found["subgroup"] if group == auto else subgroup_from_name(group, p.name, p.reaper_tags)
                 if sub_auto == "compressors":
                     char_auto = found["character"] if found["subgroup"] == "compressors" else character_from_name(p.name)
-                sub = hand["subgroup"] if hand["subgroup"] in keys_of(group) else sub_auto
-                chars = {c["key"] for s in SUBGROUPS.get(group, []) if s["key"] == sub for c in s["characters"]}
+                sub = hand["subgroup"] if hand["subgroup"] in self._type_keys(group) else sub_auto
+                chars = {c["key"] for s in self.types_of(group) if s["key"] == sub for c in s["characters"]}
                 char = hand["character"] if hand["character"] in chars else char_auto if chars else None
                 # The picture: the main version's, else the first version that has one.
                 pictured = next((i for i, s in enumerate(states) if s.get("capture") in ("ok", "custom")), 0)

@@ -3,7 +3,7 @@
 // Categories you make yourself: create one from the sidebar, change it from its title.
 
 const CUSTOM_COLOURS = ["#F2A7C3", "#7FD1AE", "#F5B971", "#9DB4FF", "#C9A15A", "#E07A5F", "#81B29A", "#B8A1E3"];
-const K = { adding: false, deleting: new Set() };
+const K = { adding: false, addingType: null, deleting: new Set() };
 
 function newCategoryRow() {
   return K.adding
@@ -11,7 +11,32 @@ function newCategoryRow() {
     : `<button class="nav-item new-cat-btn" data-cat-act="start">${icon("plus")}<span class="label">New category</span></button>`;
 }
 
+// The last row under an open group: make a type of your own inside it.
+function newTypeRow(group) {
+  return K.addingType === group
+    ? `<form class="new-cat new-type" data-cat-form="new-type"><input id="new-type-name" maxlength="40" placeholder="Type name, then Enter" aria-label="New type name" autocomplete="off"></form>`
+    : `<button class="nav-item nav-sub new-cat-btn new-type-btn" data-cat-act="start-type" data-group="${esc(group)}">${icon("plus")}<span class="label">New type</span></button>`;
+}
+
+function currentType() {
+  if (!S.view.startsWith("sub:")) return null;
+  const { g, sub } = subView(S.view);
+  return sub?.custom ? { group: g, ...sub } : null;
+}
+
+function typeSheetHtml(t) {
+  return `
+    <div class="sheet-head"><h2 id="sheet-title">Edit type</h2><button class="icon-btn" data-action="close-sheet" aria-label="Close">${icon("close")}</button></div>
+    <div class="sheet-body cat-sheet">
+      <label class="k" for="type-name">Name</label>
+      <input id="type-name" class="cat-name" value="${esc(t.label)}" maxlength="40" autocomplete="off" data-autofocus>
+    </div>
+    <div class="sheet-foot"><button class="btn quiet danger" data-cat-act="delete-type">${icon("close")}Delete type</button><button class="btn primary" data-action="close-sheet">Done</button></div>`;
+}
+
 function editCategoryButton() {
+  const t = currentType();
+  if (t) return `<button class="icon-btn cat-edit" data-cat-act="edit-type" aria-label="Edit ${esc(t.label)}" title="Rename or delete">${icon("sliders")}</button>`;
   const c = S.view.startsWith("cat:") && catOf(S.view.slice(4));
   return c && c.custom
     ? `<button class="icon-btn cat-edit" data-cat-act="edit" aria-label="Edit ${esc(c.label)}" title="Rename, recolour or delete">${icon("sliders")}</button>`
@@ -189,9 +214,34 @@ document.addEventListener("click", (e) => {
   if (act === "start") { K.adding = true; render(); $("#new-cat-name")?.focus(); }
   if (act === "edit" && currentCategory()) showCategorySheet(currentCategory());
   if (act === "delete" && currentCategory()) deleteCategory(currentCategory());
+  if (act === "start-type") { K.addingType = e.target.closest("[data-group]").dataset.group; render(); $("#new-type-name")?.focus(); }
+  if (act === "edit-type" && currentType()) {
+    $("#sheet").dataset.kind = "type";
+    openSheet(typeSheetHtml(currentType()));
+    $("#type-name").select();
+  }
+  if (act === "delete-type" && currentType()) {
+    const t = currentType();
+    closeSheet();
+    setView(`cat:${t.group}`);
+    catCall("delete_type", { group: t.group, key: t.key })
+      .then((r) => r && toast(`Deleted ${t.label}. Its plugins go back to the types Ordel picked for them.`));
+  }
 });
 
 document.addEventListener("submit", async (e) => {
+  if (e.target.dataset.catForm === "new-type") {
+    e.preventDefault();
+    const label = $("#new-type-name").value.trim();
+    const group = K.addingType;
+    if (!label || !group) return;
+    const made = await catCall("add_type", { group, label });
+    if (!made) return $("#new-type-name")?.focus();
+    K.addingType = null;
+    setView(`sub:${group}/${made.key}`);
+    toast(`Made ${made.label}. Drag plugins onto it, or pick it as the Type in a plugin's details.`, false, 5000);
+    return;
+  }
   if (e.target.dataset.catForm !== "new") return;
   e.preventDefault();
   const label = $("#new-cat-name").value.trim();
@@ -205,13 +255,19 @@ document.addEventListener("submit", async (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "new-cat-name" && e.key === "Escape") { e.stopPropagation(); K.adding = false; render(); }
+  if (e.target.id === "new-type-name" && e.key === "Escape") { e.stopPropagation(); K.addingType = null; render(); }
 }, true);
 
 document.addEventListener("focusout", (e) => {
   if (e.target.id === "new-cat-name" && !e.target.value.trim()) setTimeout(() => { K.adding = false; render(); }, 150);
+  if (e.target.id === "new-type-name" && !e.target.value.trim()) setTimeout(() => { K.addingType = null; render(); }, 150);
 });
 
 document.addEventListener("change", (e) => {
+  const t = currentType();
+  if (e.target.id === "type-name" && t && e.target.value.trim() && e.target.value.trim() !== t.label) {
+    catCall("rename_type", { group: t.group, key: t.key, label: e.target.value.trim() });
+  }
   const c = currentCategory();
   if (e.target.id === "cat-name" && c && e.target.value.trim() && e.target.value.trim() !== c.label) {
     catCall("update", { key: c.key, label: e.target.value.trim() });

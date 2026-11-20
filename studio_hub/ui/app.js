@@ -194,7 +194,7 @@ function navItem(view, label, n, lead, cls = "", expanded = null) {
 // A group's subgroups that have plugins (empty ones are hidden).
 const filledSubs = (group) => subsOf(group)
   .map((s) => ({ s, n: S.data.plugins.filter((p) => inGroup(p, group) && subIn(p, group) === s.key).length }))
-  .filter(({ n }) => n > 0);
+  .filter(({ s, n }) => n > 0 || s.custom);
 // The open group shows its subgroups unless it was clicked again to fold them away.
 const subsOpen = (group) => viewGroup() === group && !S.folded;
 
@@ -203,7 +203,7 @@ function subgroupItems(group) {
   if (!subsOpen(group)) return "";
   return filledSubs(group)
     .map(({ s, n }) => navItem(`sub:${group}/${s.key}`, s.label, n, "", " nav-sub"))
-    .join("");
+    .join("") + (group === "uncategorised" ? "" : newTypeRow(group));
 }
 
 function renderSidebar() {
@@ -334,6 +334,10 @@ function emptyState() {
   if (S.chip || S.developer) {
     return `<div class="glyph">${icon("grid")}</div><h2>Nothing matches</h2>
       <p>No plugins here match what you've picked above.</p>`;
+  }
+  if (S.view.startsWith("sub:")) {
+    return `<div class="glyph">${icon("grid")}</div><h2>Nothing in ${esc(viewTitle())} yet</h2>
+      <p>Drag a plugin onto ${esc(viewTitle())} in the sidebar, or pick it as the Type in a plugin's details.</p>`;
   }
   return `<div class="glyph">${icon("grid")}</div><h2>This category is empty</h2>
     <p>Drag a plugin onto a category in the sidebar to move it.</p>`;

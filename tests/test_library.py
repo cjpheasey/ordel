@@ -382,3 +382,60 @@ def test_unknown_extra_group_rejected_and_deleted_category_dropped(tmp_path):
     assert lib.view([comp()])[0]["extra_groups"] == [{"group": key, "subgroup": None}]
     lib.delete_category(key)
     assert lib.view([comp()])[0]["extra_groups"] == []
+
+
+def test_your_own_types_sit_before_other_and_survive_a_reload(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    t = lib.add_type("dynamics", "Vocal comps")
+    keys = [s["key"] for s in lib.types_of("dynamics")]
+    assert keys[-2:] == [t["key"], "other"] and t["custom"] is True
+    assert Library(tmp_path / "l.json").types_of("dynamics")[-2]["label"] == "Vocal comps"
+
+
+def test_type_names_are_unique_within_a_group(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    for bad in ("", "Compressors", "x" * 41):
+        try:
+            lib.add_type("dynamics", bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    lib.add_type("dynamics", "Vocal comps")
+    try:
+        lib.add_type("dynamics", "vocal  comps")
+        raise AssertionError("duplicate")
+    except ValueError:
+        pass
+    lib.add_type("reverb", "Vocal comps")  # another group may use the same name
+
+
+def test_plugins_in_your_type_and_what_deleting_it_does(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    t = lib.add_type("dynamics", "Vocal comps")["key"]
+    lib.set_subgroup("abc123abc123", t)
+    lib.set_extra("abc123abc123", "reverb", None)
+    v = lib.view([comp("UADx 1176AE Compressor")])[0]
+    assert v["subgroup"] == t and v["character"] is None  # characters belong to Compressors only
+    lib.rename_type("dynamics", t, "Vox")
+    assert lib.types_of("dynamics")[-2]["label"] == "Vox"
+    lib.delete_type("dynamics", t)
+    v = lib.view([comp("UADx 1176AE Compressor")])[0]
+    assert v["subgroup"] == "compressors" and v["character"] == "fet"
+    try:
+        lib.delete_type("dynamics", "compressors")
+        raise AssertionError("built-in types can't be deleted")
+    except ValueError:
+        pass
+
+
+def test_your_own_category_can_have_types(tmp_path):
+    lib = Library(tmp_path / "l.json")
+    key = lib.add_category("Vocal Chain")["key"]
+    t = lib.add_type(key, "Tuning")["key"]
+    assert [s["key"] for s in lib.types_of(key)] == [t]  # no built-in Other in your own categories
+    lib.set_category("abc123abc123", key)
+    assert lib.view([comp()])[0]["subgroup"] is None  # nothing is sorted into your types automatically
+    lib.set_subgroup("abc123abc123", t)
+    assert lib.view([comp()])[0]["subgroup"] == t
+    lib.delete_category(key)
+    assert lib.types_of(key) == []
