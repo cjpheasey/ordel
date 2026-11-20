@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const S = { data: null, view: "all", chip: null, developer: null, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false, versions: {} };
+const S = { data: null, view: "all", chip: null, developer: null, folded: false, query: "", selected: null, gridSig: "", wasCapturing: false, recording: false, versions: {} };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -179,17 +179,24 @@ function render() {
   renderDetail();
 }
 
-function navItem(view, label, n, lead, cls = "") {
+function navItem(view, label, n, lead, cls = "", expanded = null) {
   const current = S.view === view ? ' aria-current="true"' : "";
-  return `<button class="nav-item${cls}" data-view="${view}"${current}>${lead}<span class="label">${esc(label)}</span><span class="n">${n}</span></button>`;
+  const fold = expanded === null ? "" : ` aria-expanded="${expanded}"`;
+  return `<button class="nav-item${cls}" data-view="${view}"${current}${fold}>${lead}<span class="label">${esc(label)}</span><span class="n">${n}</span>${
+    expanded === null ? "" : '<span class="fold" aria-hidden="true"></span>'}</button>`;
 }
+
+// A group's subgroups that have plugins (empty ones are hidden).
+const filledSubs = (group) => subsOf(group)
+  .map((s) => ({ s, n: S.data.plugins.filter((p) => p.category === group && p.subgroup === s.key).length }))
+  .filter(({ n }) => n > 0);
+// The open group shows its subgroups unless it was clicked again to fold them away.
+const subsOpen = (group) => viewGroup() === group && !S.folded;
 
 // The open group lists its subgroups underneath it (empty ones hidden).
 function subgroupItems(group) {
-  if (viewGroup() !== group) return "";
-  return subsOf(group)
-    .map((s) => ({ s, n: S.data.plugins.filter((p) => p.category === group && p.subgroup === s.key).length }))
-    .filter(({ n }) => n > 0)
+  if (!subsOpen(group)) return "";
+  return filledSubs(group)
     .map(({ s, n }) => navItem(`sub:${group}/${s.key}`, s.label, n, "", " nav-sub"))
     .join("");
 }
@@ -213,7 +220,8 @@ function renderSidebar() {
       .map((c) => ({ c, n: ps.filter((p) => p.category === c.key).length }))
       .filter(({ c, n }) => n > 0 || c.custom || S.view === `cat:${c.key}`)  // yours show even when empty
       .map(({ c, n }) => navItem(`cat:${c.key}`, c.label, n,
-        `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`) + subgroupItems(c.key))
+        `<span class="tag${c.key === "uncategorised" ? " uncat" : ""}" style="--c:${c.color}"></span>`, "",
+        filledSubs(c.key).length ? subsOpen(c.key) : null) + subgroupItems(c.key))
       .join("") + newCategoryRow());
 
   const r = S.data.reaper;
@@ -626,6 +634,7 @@ function setView(view) {
   S.view = view;
   S.chip = null;
   S.developer = null;
+  S.folded = false;
   S.gridSig = "";
   S.selected = null;  // Enter and F act on the selected plugin, which must not linger out of sight
   C.selected = null;
@@ -685,6 +694,8 @@ document.addEventListener("click", (e) => {
   if (!t) return;
   if (t.dataset.action) return actions[t.dataset.action]?.();
   if (t.dataset.version) { S.versions[t.dataset.for || S.selected] = t.dataset.version; return render(); }
+  // Clicking the open group again folds its subgroups away (and opens them again).
+  if (t.dataset.view && t.dataset.view === S.view && t.hasAttribute("aria-expanded")) { S.folded = !S.folded; return render(); }
   if (t.dataset.view) return setView(t.dataset.view);
   if (t.dataset.mode) return saveSettings({ sidebar_mode: t.dataset.mode }).catch(() => {});
   if (t.dataset.chip !== undefined) { S.chip = t.dataset.chip || null; $("#scroller").scrollTop = 0; return render(); }

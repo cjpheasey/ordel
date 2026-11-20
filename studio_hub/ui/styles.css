@@ -228,6 +228,13 @@ button { background: none; border: 0; padding: 0; cursor: default; }
 /* Subgroups of the open group, indented under it (no colour square of their own). */
 .nav-item.nav-sub { height: 26px; padding-left: 33px; color: var(--text-2); font-size: 12.5px; }
 .nav-item.nav-sub[aria-current="true"] { color: var(--text); }
+/* Arrow on groups with subgroups: points right when folded, down when open. */
+.nav-item .fold {
+  width: 5px; height: 5px; flex: none; margin: 0 2px 0 -2px;
+  border-right: 1.5px solid var(--text-3); border-bottom: 1.5px solid var(--text-3);
+  transform: rotate(-45deg); transition: transform .15s;
+}
+.nav-item[aria-expanded="true"] .fold { transform: rotate(45deg); }
 /* Inside a group, the developer narrows from a small menu at the end of the chip row. */
 .dev-menu {
   margin-left: auto; height: 26px; padding: 0 8px; border-radius: var(--r-sm);
