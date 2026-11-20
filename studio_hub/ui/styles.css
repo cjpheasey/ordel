@@ -360,6 +360,8 @@ h1 {
   object-fit: cover;
   filter: blur(22px) saturate(1.4) brightness(.8);
 }
+/* The app window cancels drags that start on a picture, so a drag must start on the card itself. */
+.card img { pointer-events: none; -webkit-user-drag: none; }
 .art .fg { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.35)); }
 body[data-fit="cover"] .art .fg { inset: 0; width: 100%; height: 100%; object-fit: cover; filter: none; }
 body[data-density="compact"] .grid { gap: 12px 10px; }
